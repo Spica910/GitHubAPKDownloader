@@ -33,9 +33,26 @@ class ApkDownloader(private val context: Context) {
     }
 
     fun downloadApk(asset: Asset, prefix: String = "app") {
-        // Use Android's DownloadManager for downloading
-        val fileName = "${prefix}-${asset.name}"
-        val request = DownloadManager.Request(Uri.parse(asset.browserDownloadUrl))
+        downloadApkFile(
+            fileName = "${prefix}-${asset.name}",
+            downloadUrl = asset.browserDownloadUrl
+        )
+    }
+
+    fun downloadApkFromInfo(apkInfo: ApkInfo, token: String? = null) {
+        // For artifacts, we need authentication
+        if (apkInfo.source == ApkSource.ARTIFACT && token != null) {
+            downloadArtifact(apkInfo, token)
+        } else {
+            downloadApkFile(
+                fileName = apkInfo.fileName,
+                downloadUrl = apkInfo.downloadUrl
+            )
+        }
+    }
+
+    private fun downloadApkFile(fileName: String, downloadUrl: String) {
+        val request = DownloadManager.Request(Uri.parse(downloadUrl))
             .setTitle("Downloading $fileName")
             .setDescription("GitHub APK Download")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
@@ -87,9 +104,45 @@ class ApkDownloader(private val context: Context) {
         Toast.makeText(context, "Download started: $fileName", Toast.LENGTH_SHORT).show()
     }
 
+    private fun downloadArtifact(apkInfo: ApkInfo, token: String) {
+        // Artifacts require authentication
+        val fileName = apkInfo.fileName
+        val request = DownloadManager.Request(Uri.parse(apkInfo.downloadUrl))
+            .setTitle("Downloading $fileName")
+            .setDescription("GitHub Artifact Download")
+            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
+            .setAllowedOverMetered(true)
+            .setAllowedOverRoaming(true)
+            .addRequestHeader("Authorization", "Bearer $token")
+
+        val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        downloadManager.enqueue(request)
+
+        Toast.makeText(
+            context,
+            "Downloading artifact: $fileName",
+            Toast.LENGTH_SHORT
+        ).show()
+    }
+
     private fun openApkInstaller(context: Context, uri: Uri) {
         try {
-            val file = File(uri.path ?: return)
+            // Try to get the file from different URI schemes
+            val file = when {
+                uri.scheme == "file" -> File(uri.path ?: return)
+                uri.scheme == "content" -> {
+                    // For content URIs, copy to cache and use that
+                    val input = context.contentResolver.openInputStream(uri) ?: return
+                    val cacheFile = File(context.cacheDir, "temp.apk")
+                    FileOutputStream(cacheFile).use { output ->
+                        input.copyTo(output)
+                    }
+                    cacheFile
+                }
+                else -> return
+            }
+
             val contentUri = FileProvider.getUriForFile(
                 context,
                 "${context.packageName}.fileprovider",
@@ -104,10 +157,11 @@ class ApkDownloader(private val context: Context) {
 
             context.startActivity(installIntent)
         } catch (e: Exception) {
+            e.printStackTrace()
             Toast.makeText(
                 context,
-                "Unable to open installer: ${e.message}",
-                Toast.LENGTH_SHORT
+                "Downloaded! Please install from Downloads folder",
+                Toast.LENGTH_LONG
             ).show()
         }
     }

@@ -77,4 +77,12 @@ interface GitHubApiService {
         @Header("Authorization") token: String,
         @Body request: CreateRepositoryRequest
     ): Response<Repository>
+
+    @GET("repos/{owner}/{repo}/actions/artifacts")
+    suspend fun getRepositoryArtifacts(
+        @Header("Authorization") token: String,
+        @Path("owner") owner: String,
+        @Path("repo") repo: String,
+        @Query("per_page") perPage: Int = 30
+    ): Response<ArtifactsResponse>
 }

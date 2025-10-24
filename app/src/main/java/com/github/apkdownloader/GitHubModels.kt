@@ -115,12 +115,34 @@ data class CreateRepositoryRequest(
 
 data class RepositoryWithApk(
     val repository: Repository,
-    val apkInfo: ApkInfo? = null
+    val apkInfo: ApkInfo? = null,
+    val artifactApks: List<ApkInfo> = emptyList()
 )
 
 data class ApkInfo(
     val fileName: String,
     val downloadUrl: String,
     val location: String,
-    val size: Long
+    val size: Long,
+    val source: ApkSource = ApkSource.RELEASE
+)
+
+enum class ApkSource {
+    RELEASE,
+    ARTIFACT
+}
+
+data class ArtifactsResponse(
+    @SerializedName("total_count") val totalCount: Int,
+    val artifacts: List<Artifact>
+)
+
+data class Artifact(
+    val id: Long,
+    val name: String,
+    @SerializedName("size_in_bytes") val sizeInBytes: Long,
+    @SerializedName("archive_download_url") val archiveDownloadUrl: String,
+    val expired: Boolean,
+    @SerializedName("created_at") val createdAt: String,
+    @SerializedName("expires_at") val expiresAt: String
 )

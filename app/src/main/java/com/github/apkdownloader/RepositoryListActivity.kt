@@ -24,6 +24,7 @@ class RepositoryListActivity : AppCompatActivity() {
     private lateinit var progressBar: ProgressBar
     private lateinit var emptyView: TextView
     private lateinit var repoCountText: TextView
+    private lateinit var buildTimeText: TextView
     private lateinit var repositoryAdapter: RepositoryAdapter
 
     private var searchJob: Job? = null
@@ -39,6 +40,10 @@ class RepositoryListActivity : AppCompatActivity() {
         progressBar = findViewById(R.id.progressBar)
         emptyView = findViewById(R.id.emptyView)
         repoCountText = findViewById(R.id.repoCountText)
+        buildTimeText = findViewById(R.id.buildTimeText)
+
+        // Display build time
+        buildTimeText.text = "📅 Built: ${BuildConfig.BUILD_TIME}"
 
         repositoryAdapter = RepositoryAdapter(
             onBrowseFilesClick = { repository ->
@@ -185,8 +190,11 @@ class RepositoryListActivity : AppCompatActivity() {
                     repositoryAdapter.submitList(reposWithApk)
 
                     // Update counter
-                    val apkCount = reposWithApk.count { it.apkInfo != null }
-                    repoCountText.text = "📦 ${allRepositories.size} repositories (${apkCount} with APKs)"
+                    val reposWithApks = reposWithApk.count { it.apkInfo != null || it.artifactApks.isNotEmpty() }
+                    val totalApks = reposWithApk.sumOf {
+                        (if (it.apkInfo != null) 1 else 0) + it.artifactApks.size
+                    }
+                    repoCountText.text = "📦 ${allRepositories.size} repos ($reposWithApks with $totalApks APKs)"
 
                     // Log first 10 repo names
                     android.util.Log.d("RepoLoad", "First 10 repos:")
@@ -389,65 +397,134 @@ class RepositoryListActivity : AppCompatActivity() {
     }
 
     private suspend fun checkForApksInRepos(repos: List<Repository>, token: String): List<RepositoryWithApk> {
-        return repos.map { repo ->
+        return repos.mapIndexed { index, repo ->
             try {
+                var releaseApk: ApkInfo? = null
+                val artifactApks = mutableListOf<ApkInfo>()
+                val folderApks = mutableListOf<ApkInfo>()
+
+                // For FIRST repository only: scan all folders for APK files
+                if (index == 0) {
+                    android.util.Log.d("ApkCheck", "Scanning all folders in ${repo.fullName}")
+
+                    // Get default branch
+                    val branchesResponse = RetrofitClient.gitHubApiService.getRepositoryBranches(
+                        "Bearer $token",
+                        repo.owner.login,
+                        repo.name
+                    )
+
+                    if (branchesResponse.isSuccessful) {
+                        val branches = branchesResponse.body() ?: emptyList()
+                        val defaultBranch = branches.firstOrNull { it.name == "main" || it.name == "master" }
+                            ?: branches.firstOrNull()
+
+                        if (defaultBranch != null) {
+                            // Get git tree recursively
+                            val treeResponse = RetrofitClient.gitHubApiService.getGitTree(
+                                "Bearer $token",
+                                repo.owner.login,
+                                repo.name,
+                                defaultBranch.commit.sha,
+                                recursive = 1
+                            )
+
+                            if (treeResponse.isSuccessful) {
+                                val tree = treeResponse.body()
+                                val apkFiles = tree?.tree?.filter {
+                                    it.type == "blob" && it.path.endsWith(".apk", ignoreCase = true)
+                                } ?: emptyList()
+
+                                android.util.Log.d("ApkCheck", "Found ${apkFiles.size} APK files in folders")
+
+                                apkFiles.take(5).forEach { apkFile ->
+                                    val downloadUrl = "https://raw.githubusercontent.com/${repo.owner.login}/${repo.name}/${defaultBranch.name}/${apkFile.path}"
+                                    folderApks.add(ApkInfo(
+                                        fileName = apkFile.path.substringAfterLast("/"),
+                                        downloadUrl = downloadUrl,
+                                        location = "📁 ${apkFile.path}",
+                                        size = apkFile.size ?: 0,
+                                        source = ApkSource.RELEASE
+                                    ))
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Check latest release for APK files
-                val response = RetrofitClient.gitHubApiService.getRepositoryReleases(
+                val releaseResponse = RetrofitClient.gitHubApiService.getRepositoryReleases(
                     "Bearer $token",
                     repo.owner.login,
                     repo.name,
                     perPage = 1
                 )
 
-                if (response.isSuccessful) {
-                    val releases = response.body() ?: emptyList()
+                if (releaseResponse.isSuccessful) {
+                    val releases = releaseResponse.body() ?: emptyList()
                     val latestRelease = releases.firstOrNull()
 
                     if (latestRelease != null) {
-                        // Find first APK file in release assets
                         val apkAsset = latestRelease.assets.firstOrNull { it.name.endsWith(".apk", ignoreCase = true) }
 
                         if (apkAsset != null) {
-                            val apkInfo = ApkInfo(
+                            releaseApk = ApkInfo(
                                 fileName = apkAsset.name,
                                 downloadUrl = apkAsset.browserDownloadUrl,
-                                location = "Release: ${latestRelease.tagName}",
-                                size = apkAsset.size
+                                location = "🎉 Release: ${latestRelease.tagName}",
+                                size = apkAsset.size,
+                                source = ApkSource.RELEASE
                             )
-                            RepositoryWithApk(repo, apkInfo)
-                        } else {
-                            RepositoryWithApk(repo, null)
                         }
-                    } else {
-                        RepositoryWithApk(repo, null)
                     }
-                } else {
-                    RepositoryWithApk(repo, null)
                 }
+
+                // Check GitHub Actions artifacts
+                val artifactsResponse = RetrofitClient.gitHubApiService.getRepositoryArtifacts(
+                    "Bearer $token",
+                    repo.owner.login,
+                    repo.name,
+                    perPage = 10
+                )
+
+                if (artifactsResponse.isSuccessful) {
+                    val artifacts = artifactsResponse.body()?.artifacts ?: emptyList()
+
+                    artifacts.filter {
+                        !it.expired && it.name.contains("apk", ignoreCase = true)
+                    }.take(3).forEach { artifact ->
+                        artifactApks.add(ApkInfo(
+                            fileName = artifact.name,
+                            downloadUrl = artifact.archiveDownloadUrl,
+                            location = "⚙️ Artifact: ${artifact.name}",
+                            size = artifact.sizeInBytes,
+                            source = ApkSource.ARTIFACT
+                        ))
+                    }
+                }
+
+                // Combine all APKs: folder APKs + release + artifacts
+                val allArtifactApks = folderApks + artifactApks
+
+                RepositoryWithApk(repo, releaseApk, allArtifactApks)
             } catch (e: Exception) {
                 android.util.Log.e("ApkCheck", "Error checking ${repo.fullName}: ${e.message}")
-                RepositoryWithApk(repo, null)
+                e.printStackTrace()
+                RepositoryWithApk(repo, null, emptyList())
             }
         }
     }
 
     private fun downloadApk(apkInfo: ApkInfo) {
+        val token = GitHubAuthHelper.getToken(this)
+
         Toast.makeText(
             this,
             "Downloading ${apkInfo.fileName}...",
             Toast.LENGTH_SHORT
         ).show()
 
-        // Create temporary Asset object from ApkInfo
-        val tempAsset = Asset(
-            id = 0,
-            name = apkInfo.fileName,
-            browserDownloadUrl = apkInfo.downloadUrl,
-            size = apkInfo.size,
-            contentType = "application/vnd.android.package-archive"
-        )
-
-        // Use existing ApkDownloader
-        ApkDownloader(this).downloadApk(tempAsset, "")
+        // Use ApkDownloader with new method
+        ApkDownloader(this).downloadApkFromInfo(apkInfo, token)
     }
 }

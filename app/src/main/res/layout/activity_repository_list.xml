@@ -27,6 +27,21 @@
         android:gravity="center"
         android:textStyle="bold" />
 
+    <TextView
+        android:id="@+id/buildTimeText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Build: Loading..."
+        android:textSize="12sp"
+        android:textColor="@color/white"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="8dp"
+        android:background="#1a4CAF50"
+        android:gravity="center"
+        android:textStyle="italic" />
+
     <com.google.android.material.textfield.TextInputLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

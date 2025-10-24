@@ -52,31 +52,17 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="📦 APK Available"
+                android:text="📦 APK Files Available"
                 android:textStyle="bold"
                 android:textColor="#4CAF50"
                 android:textSize="14sp" />
 
-            <TextView
-                android:id="@+id/apkLocationText"
+            <LinearLayout
+                android:id="@+id/apkListContainer"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:textSize="12sp"
-                android:textColor="@color/white"
-                android:maxLines="2"
-                android:ellipsize="end" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/downloadApkButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="Download APK"
-                android:textColor="@color/white"
-                android:textSize="12sp"
-                app:backgroundTint="#4CAF50"
-                style="@style/Widget.MaterialComponents.Button" />
+                android:orientation="vertical"
+                android:layout_marginTop="4dp" />
 
         </LinearLayout>
 
