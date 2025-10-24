@@ -3,6 +3,12 @@
     xmlns:app="http://schemas.android.com/apk/res-auto">
 
     <item
+        android:id="@+id/action_refresh"
+        android:title="Refresh"
+        android:icon="@android:drawable/ic_menu_rotate"
+        app:showAsAction="always" />
+
+    <item
         android:id="@+id/action_search"
         android:title="@string/search_repositories"
         android:icon="@android:drawable/ic_menu_search"

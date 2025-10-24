@@ -88,6 +88,10 @@ class RepositoryListActivity : AppCompatActivity() {
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return when (item.itemId) {
+            R.id.action_refresh -> {
+                loadUserRepositories()
+                true
+            }
             R.id.action_create_repo -> {
                 showCreateRepositoryDialog()
                 true

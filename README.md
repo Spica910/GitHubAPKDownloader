@@ -1,16 +1,29 @@
 # GitHub APK Downloader
 
-An Android application that allows you to browse GitHub repositories and download APK files from releases using GitHub OAuth authentication.
+An Android application for browsing GitHub repositories and downloading APK files, with automatic APK detection displayed on the first page.
+
+[한국어 README](README_KO.md)
 
 ## Features
 
-- GitHub OAuth authentication
-- Browse your repositories
-- Search for repositories
-- View releases for any repository
-- Download APK files from releases
+### Core Features
+- **GitHub OAuth Device Flow** authentication (no client secret needed)
+- **APK Detection**: Automatically scans and displays APK files from releases on the main screen
+- **Branch Selector**: Switch between repository branches with dropdown menu
+- **Repository Management**: Create new repositories directly from the app
+- **File Browser**: Browse repository file trees
+- **Upload Files/Folders**: Upload single files or entire folders to any branch
+
+### Download & Install
+- One-click APK download from the main screen
+- View all releases with APK files
 - Automatic download management with notifications
-- Option to install APK after download
+- Direct installation option after download
+
+### Display
+- Shows APK location, filename, and size on repository cards
+- Repository counter with APK count (e.g., "📦 6 repositories (2 with APKs)")
+- Dark theme with Material Design 3
 
 ## Setup Instructions
 
