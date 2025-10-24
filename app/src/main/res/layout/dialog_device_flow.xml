@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="24dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="To continue, open GitHub in your browser and enter this code:"
+        android:textSize="16sp"
+        android:layout_marginBottom="16dp" />
+
+    <com.google.android.material.card.MaterialCardView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="16dp"
+        app:cardBackgroundColor="@color/teal_200">
+
+        <TextView
+            android:id="@+id/userCodeText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="XXXX-XXXX"
+            android:textSize="32sp"
+            android:textStyle="bold"
+            android:textAlignment="center"
+            android:padding="16dp"
+            android:letterSpacing="0.2"
+            android:fontFamily="monospace" />
+
+    </com.google.android.material.card.MaterialCardView>
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/copyCodeButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Copy Code"
+        android:layout_marginBottom="8dp"
+        style="@style/Widget.Material3.Button.OutlinedButton" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/openBrowserButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Open GitHub"
+        style="@style/Widget.Material3.Button" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="The app will automatically detect when you've authorized."
+        android:textSize="12sp"
+        android:layout_marginTop="16dp"
+        android:textColor="?android:textColorSecondary"
+        android:textAlignment="center" />
+
+</LinearLayout>

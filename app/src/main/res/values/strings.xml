@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">GitHub APK Downloader</string>
+    <string name="login_with_github">Login with GitHub</string>
+    <string name="logout">Logout</string>
+    <string name="search_repositories">Search repositories…</string>
+    <string name="no_repositories">No repositories found</string>
+    <string name="no_releases">No releases found</string>
+    <string name="download">Download</string>
+    <string name="downloading">Downloading…</string>
+    <string name="download_complete">Download complete</string>
+    <string name="download_failed">Download failed</string>
+    <string name="loading">Loading…</string>
+    <string name="error_occurred">An error occurred</string>
+    <string name="release_tag">Tag: %s</string>
+    <string name="apk_size">Size: %s MB</string>
+</resources>
