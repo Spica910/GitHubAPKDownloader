@@ -19,6 +19,35 @@ class CliInstaller(private val context: Context) {
 
     companion object {
         private const val TAG = "CliInstaller"
+
+        // Termux paths
+        private const val TERMUX_BASH = "/data/data/com.termux/files/usr/bin/bash"
+        private const val TERMUX_BIN = "/data/data/com.termux/files/usr/bin"
+    }
+
+    /**
+     * Execute command in Termux environment
+     */
+    private suspend fun executeInTermux(command: String): Pair<Int, String> = withContext(Dispatchers.IO) {
+        try {
+            Log.d(TAG, "Executing in Termux: $command")
+
+            val process = ProcessBuilder(TERMUX_BASH, "-c", command)
+                .redirectErrorStream(true)
+                .start()
+
+            val output = BufferedReader(InputStreamReader(process.inputStream)).use {
+                it.readText()
+            }
+
+            val exitCode = process.waitFor()
+            Log.d(TAG, "Exit code: $exitCode, Output: $output")
+
+            Pair(exitCode, output)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error executing command: ${e.message}", e)
+            Pair(-1, e.message ?: "Unknown error")
+        }
     }
 
     /**
@@ -62,19 +91,7 @@ class CliInstaller(private val context: Context) {
             Log.d(TAG, "Installing gemini-cli via pip...")
             _installProgress.value = InstallProgress.Installing("Installing gemini-cli via pip...")
 
-            val installCommand = arrayOf(
-                "pip", "install", "google-generativeai", "gemini-cli", "-q"
-            )
-
-            val process = ProcessBuilder(*installCommand)
-                .redirectErrorStream(true)
-                .start()
-
-            val output = BufferedReader(InputStreamReader(process.inputStream)).use {
-                it.readText()
-            }
-
-            val exitCode = process.waitFor()
+            val (exitCode, output) = executeInTermux("pip install google-generativeai gemini-cli -q")
 
             if (exitCode == 0 || isGeminiInstalled()) {
                 Log.d(TAG, "Gemini CLI installed successfully")
@@ -104,11 +121,11 @@ class CliInstaller(private val context: Context) {
             Log.d(TAG, "Installing Claude CLI...")
             _installProgress.value = InstallProgress.Installing("Downloading Claude CLI...")
 
-            // Install Claude CLI directly
+            // Install Claude CLI directly using Termux environment
             val installCommands = listOf(
                 "curl -fsSL https://cli.anthropic.com/install.sh | sh",
                 "npm install -g @anthropic-ai/claude-code",
-                "pip install anthropic-cli"
+                "pip install anthropic-claude-cli"
             )
 
             var installed = false
@@ -119,15 +136,7 @@ class CliInstaller(private val context: Context) {
                     Log.d(TAG, "Trying installation method ${index + 1}: $cmd")
                     _installProgress.value = InstallProgress.Installing("Method ${index + 1}/3...")
 
-                    val process = ProcessBuilder("/system/bin/sh", "-c", cmd)
-                        .redirectErrorStream(true)
-                        .start()
-
-                    val output = BufferedReader(InputStreamReader(process.inputStream)).use {
-                        it.readText()
-                    }
-
-                    val exitCode = process.waitFor()
+                    val (exitCode, output) = executeInTermux(cmd)
 
                     if (exitCode == 0 || isClaudeInstalled()) {
                         installed = true
@@ -165,14 +174,8 @@ class CliInstaller(private val context: Context) {
         try {
             _installProgress.value = InstallProgress.Installing("Authenticating Claude...")
 
-            // Start Claude authentication
-            val process = ProcessBuilder("claude", "login")
-                .redirectErrorStream(true)
-                .start()
-
-            val output = BufferedReader(InputStreamReader(process.inputStream)).use {
-                it.readText()
-            }
+            // Start Claude authentication using Termux environment
+            val (exitCode, output) = executeInTermux("claude login")
 
             // Extract authentication URL if present
             val authUrl = output.lines().firstOrNull {
@@ -182,9 +185,12 @@ class CliInstaller(private val context: Context) {
             if (authUrl != null) {
                 _installProgress.value = InstallProgress.AuthRequired(authUrl)
                 Result.success("Please visit: $authUrl")
-            } else {
+            } else if (exitCode == 0) {
                 _installProgress.value = InstallProgress.Success("Claude authenticated!")
                 Result.success("Authentication complete")
+            } else {
+                _installProgress.value = InstallProgress.Failed("Authentication failed: $output")
+                Result.failure(Exception("Authentication failed: $output"))
             }
 
         } catch (e: Exception) {
@@ -200,11 +206,17 @@ class CliInstaller(private val context: Context) {
     private suspend fun installPython(): Boolean = withContext(Dispatchers.IO) {
         try {
             Log.d(TAG, "Installing Python via pkg...")
-            val process = ProcessBuilder("pkg", "install", "python", "-y")
-                .redirectErrorStream(true)
-                .start()
+            _installProgress.value = InstallProgress.Installing("Installing Python...")
 
-            process.waitFor() == 0
+            val (exitCode, output) = executeInTermux("pkg install python -y")
+
+            if (exitCode == 0) {
+                Log.d(TAG, "Python installed successfully")
+                true
+            } else {
+                Log.e(TAG, "Python installation failed: $output")
+                false
+            }
 
         } catch (e: Exception) {
             Log.e(TAG, "Error installing Python: ${e.message}")
@@ -221,9 +233,8 @@ class CliInstaller(private val context: Context) {
 
             for (cmd in commands) {
                 try {
-                    val process = ProcessBuilder("/system/bin/sh", "-c", "which ${cmd.split(" ").first()}")
-                        .start()
-                    if (process.waitFor() == 0) {
+                    val (exitCode, _) = executeInTermux("which ${cmd.split(" ").first()}")
+                    if (exitCode == 0) {
                         return@withContext true
                     }
                 } catch (e: Exception) {
@@ -242,8 +253,8 @@ class CliInstaller(private val context: Context) {
      */
     private suspend fun isClaudeInstalled(): Boolean = withContext(Dispatchers.IO) {
         try {
-            val process = ProcessBuilder("which", "claude").start()
-            process.waitFor() == 0
+            val (exitCode, _) = executeInTermux("which claude")
+            exitCode == 0
 
         } catch (e: Exception) {
             false
@@ -255,8 +266,7 @@ class CliInstaller(private val context: Context) {
      */
     private suspend fun isClaudeAuthenticated(): Boolean = withContext(Dispatchers.IO) {
         try {
-            val process = ProcessBuilder("claude", "--version").start()
-            val exitCode = process.waitFor()
+            val (exitCode, _) = executeInTermux("claude --version")
 
             // If version command works, likely authenticated
             exitCode == 0
@@ -271,8 +281,8 @@ class CliInstaller(private val context: Context) {
      */
     private suspend fun isPythonAvailable(): Boolean = withContext(Dispatchers.IO) {
         try {
-            val process = ProcessBuilder("which", "python").start()
-            process.waitFor() == 0
+            val (exitCode, _) = executeInTermux("which python")
+            exitCode == 0
         } catch (e: Exception) {
             false
         }
@@ -283,8 +293,8 @@ class CliInstaller(private val context: Context) {
      */
     private suspend fun isNpmAvailable(): Boolean = withContext(Dispatchers.IO) {
         try {
-            val process = ProcessBuilder("which", "npm").start()
-            process.waitFor() == 0
+            val (exitCode, _) = executeInTermux("which npm")
+            exitCode == 0
         } catch (e: Exception) {
             false
         }
@@ -295,8 +305,8 @@ class CliInstaller(private val context: Context) {
      */
     private suspend fun isPkgAvailable(): Boolean = withContext(Dispatchers.IO) {
         try {
-            val process = ProcessBuilder("which", "pkg").start()
-            process.waitFor() == 0
+            val (exitCode, _) = executeInTermux("which pkg")
+            exitCode == 0
         } catch (e: Exception) {
             false
         }
