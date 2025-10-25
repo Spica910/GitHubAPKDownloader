@@ -73,6 +73,10 @@ class AiBuildActivity : AppCompatActivity() {
             // Repository was selected from list, auto-load it
             android.util.Log.d("AiBuild", "Auto-loading repository: $repoFullName")
             loadUserRepositoriesAndSelect(repoFullName)
+        } else {
+            // No repository passed, auto-load all repositories
+            android.util.Log.d("AiBuild", "Auto-loading all repositories")
+            loadUserRepositories()
         }
     }
 
