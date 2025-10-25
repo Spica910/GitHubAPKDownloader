@@ -10,6 +10,7 @@ import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.github.apkdownloader.ai.CliInstaller
+import com.github.apkdownloader.ai.BuiltInInstaller
 import com.github.apkdownloader.ai.InstallProgress
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
@@ -17,12 +18,14 @@ import kotlinx.coroutines.launch
 
 class CliSetupActivity : AppCompatActivity() {
 
-    private lateinit var cliInstaller: CliInstaller
+    private lateinit var builtInInstaller: BuiltInInstaller
 
     // UI components
+    private lateinit var pythonStatusBadge: TextView
     private lateinit var geminiStatusBadge: TextView
     private lateinit var claudeStatusBadge: TextView
     private lateinit var androidToolsStatusBadge: TextView
+    private lateinit var installPythonButton: MaterialButton
     private lateinit var installGeminiButton: MaterialButton
     private lateinit var showGeminiInstructionsButton: MaterialButton
     private lateinit var installClaudeButton: MaterialButton
@@ -40,7 +43,7 @@ class CliSetupActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_cli_setup)
 
-        cliInstaller = CliInstaller(this)
+        builtInInstaller = BuiltInInstaller(this)
 
         initializeViews()
         setupListeners()
@@ -49,9 +52,11 @@ class CliSetupActivity : AppCompatActivity() {
     }
 
     private fun initializeViews() {
+        pythonStatusBadge = findViewById(R.id.pythonStatusBadge)
         geminiStatusBadge = findViewById(R.id.geminiStatusBadge)
         claudeStatusBadge = findViewById(R.id.claudeStatusBadge)
         androidToolsStatusBadge = findViewById(R.id.androidToolsStatusBadge)
+        installPythonButton = findViewById(R.id.installPythonButton)
         installGeminiButton = findViewById(R.id.installGeminiButton)
         showGeminiInstructionsButton = findViewById(R.id.showGeminiInstructionsButton)
         installClaudeButton = findViewById(R.id.installClaudeButton)
@@ -67,6 +72,10 @@ class CliSetupActivity : AppCompatActivity() {
     }
 
     private fun setupListeners() {
+        installPythonButton.setOnClickListener {
+            installPython()
+        }
+
         installGeminiButton.setOnClickListener {
             installGemini()
         }
@@ -112,7 +121,18 @@ class CliSetupActivity : AppCompatActivity() {
     private fun checkInstallationStatus() {
         lifecycleScope.launch {
             try {
-                val status = cliInstaller.checkInstallationStatus()
+                val status = builtInInstaller.checkInstallationStatus()
+
+                // Update Python status
+                if (status.pythonAvailable) {
+                    pythonStatusBadge.text = "✅ Installed"
+                    pythonStatusBadge.setBackgroundColor(getColor(android.R.color.holo_green_dark))
+                    installPythonButton.isEnabled = false
+                    installPythonButton.text = "✅ Python Installed"
+                } else {
+                    pythonStatusBadge.text = "❌ Not Installed"
+                    pythonStatusBadge.setBackgroundColor(getColor(android.R.color.holo_red_dark))
+                }
 
                 // Update Gemini status
                 if (status.geminiInstalled) {
@@ -159,11 +179,27 @@ class CliSetupActivity : AppCompatActivity() {
                     androidToolsStatusBadge.setBackgroundColor(getColor(android.R.color.holo_red_dark))
                 }
 
-                // Enable continue button if at least one AI is ready
-                continueButton.isEnabled = status.geminiInstalled || status.allReady
+                // Enable continue button if at least Python is ready
+                continueButton.isEnabled = status.pythonAvailable || status.geminiInstalled || status.allReady
 
             } catch (e: Exception) {
                 android.util.Log.e("CliSetup", "Error checking status: ${e.message}")
+            }
+        }
+    }
+
+    private fun installPython() {
+        lifecycleScope.launch {
+            progressCard.visibility = View.VISIBLE
+            installPythonButton.isEnabled = false
+
+            val result = builtInInstaller.installPython()
+
+            result.onSuccess {
+                checkInstallationStatus()
+            }.onFailure {
+                showError("Python Installation Failed", it.message ?: "Unknown error")
+                installPythonButton.isEnabled = true
             }
         }
     }
@@ -173,7 +209,7 @@ class CliSetupActivity : AppCompatActivity() {
             progressCard.visibility = View.VISIBLE
             installGeminiButton.isEnabled = false
 
-            val result = cliInstaller.installGeminiCli()
+            val result = builtInInstaller.installGeminiCli()
 
             result.onSuccess {
                 checkInstallationStatus()
@@ -189,7 +225,7 @@ class CliSetupActivity : AppCompatActivity() {
             progressCard.visibility = View.VISIBLE
             installClaudeButton.isEnabled = false
 
-            val result = cliInstaller.installClaudeCli()
+            val result = builtInInstaller.installClaudeCli()
 
             result.onSuccess {
                 checkInstallationStatus()
@@ -201,31 +237,15 @@ class CliSetupActivity : AppCompatActivity() {
     }
 
     private fun authenticateClaude() {
-        lifecycleScope.launch {
-            progressCard.visibility = View.VISIBLE
-            progressText.text = "Opening Claude authentication..."
-
-            val result = cliInstaller.authenticateClaude()
-
-            result.onSuccess { message ->
-                if (message.contains("https://")) {
-                    // Open browser for authentication
-                    try {
-                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(message.substringAfter("visit: ")))
-                        startActivity(intent)
-                        showInfo("Authentication", "Please complete authentication in your browser, then return here and check status.")
-                    } catch (e: Exception) {
-                        showInfo("Authentication URL", message)
-                    }
-                } else {
-                    showInfo("Success", message)
-                }
-                progressCard.visibility = View.GONE
-            }.onFailure {
-                showError("Authentication Failed", it.message ?: "Unknown error")
-                progressCard.visibility = View.GONE
-            }
-        }
+        // For now, show manual authentication instructions
+        showInfo(
+            "Claude Authentication",
+            "After installing Claude CLI, you need to authenticate manually:\n\n" +
+            "1. Open a terminal in the app\n" +
+            "2. Run: claude login\n" +
+            "3. Follow the authentication prompts\n" +
+            "4. Return here to verify installation"
+        )
     }
 
     private fun installAndroidTools() {
@@ -233,7 +253,7 @@ class CliSetupActivity : AppCompatActivity() {
             progressCard.visibility = View.VISIBLE
             installAndroidToolsButton.isEnabled = false
 
-            val result = cliInstaller.installAndroidTools()
+            val result = builtInInstaller.installAndroidTools()
 
             result.onSuccess {
                 checkInstallationStatus()
@@ -246,7 +266,7 @@ class CliSetupActivity : AppCompatActivity() {
 
     private fun observeProgress() {
         lifecycleScope.launch {
-            cliInstaller.installProgress.collect { progress ->
+            builtInInstaller.installProgress.collect { progress ->
                 when (progress) {
                     is InstallProgress.Idle -> {
                         progressCard.visibility = View.GONE
@@ -288,7 +308,7 @@ class CliSetupActivity : AppCompatActivity() {
     }
 
     private fun showManualInstructions(cliName: String) {
-        val instructions = cliInstaller.getManualInstructions()
+        val instructions = builtInInstaller.getManualInstructions()
 
         val steps = when (cliName) {
             "Gemini" -> instructions.geminiSteps

@@ -421,8 +421,21 @@ class AiBuildActivity : AppCompatActivity() {
                 if (response.isSuccessful && response.body() != null) {
                     userRepositories = response.body()!!
 
-                    // Create adapter for spinner
+                    android.util.Log.d("AiBuild", "Loaded ${userRepositories.size} repositories")
+
+                    if (userRepositories.isEmpty()) {
+                        Toast.makeText(
+                            this@AiBuildActivity,
+                            "No repositories found. Create a repository on GitHub first.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                        return@launch
+                    }
+
+                    // Create adapter for spinner with white text
                     val repoNames = userRepositories.map { it.fullName }
+                    android.util.Log.d("AiBuild", "Repository names: $repoNames")
+
                     val adapter = ArrayAdapter(
                         this@AiBuildActivity,
                         android.R.layout.simple_spinner_item,
@@ -433,6 +446,8 @@ class AiBuildActivity : AppCompatActivity() {
 
                     // Select previously selected repository if any
                     val selectedRepo = projectConfig.getSelectedRepository()
+                    android.util.Log.d("AiBuild", "Previously selected: $selectedRepo")
+
                     if (selectedRepo != null) {
                         val index = repoNames.indexOf(selectedRepo)
                         if (index >= 0) {
@@ -442,14 +457,17 @@ class AiBuildActivity : AppCompatActivity() {
 
                     Toast.makeText(
                         this@AiBuildActivity,
-                        "Loaded ${userRepositories.size} repositories",
+                        "✓ Loaded ${userRepositories.size} repositories",
                         Toast.LENGTH_SHORT
                     ).show()
                 } else {
+                    val errorBody = response.errorBody()?.string()
+                    android.util.Log.e("AiBuild", "Failed to load repositories: ${response.code()} - $errorBody")
+
                     Toast.makeText(
                         this@AiBuildActivity,
-                        "Failed to load repositories",
-                        Toast.LENGTH_SHORT
+                        "Failed: ${response.code()} - Check if you're logged in to GitHub",
+                        Toast.LENGTH_LONG
                     ).show()
                 }
 
