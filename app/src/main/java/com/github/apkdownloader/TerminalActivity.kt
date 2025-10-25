@@ -62,30 +62,40 @@ class TerminalActivity : AppCompatActivity() {
         val welcomeMsg = """
             ┌─────────────────────────────────────┐
             │  GitHub APK Downloader Terminal     │
-            │  Python 설치 및 명령어 실행         │
+            │  명령어 실행 환경                    │
             └─────────────────────────────────────┘
 
-            📁 홈 디렉토리: ${dirInfo.home}
+            📁 앱 디렉토리: ${dirInfo.home}
             📁 실행 파일: ${dirInfo.bin}
-            📁 라이브러리: ${dirInfo.lib}
+
+            ⚠️  중요: 이것은 Termux가 아닙니다!
+
+            이 터미널은:
+            ✅ 이미 설치된 명령어 실행 가능
+            ✅ Termux Python 사용 가능 (설치되어 있다면)
+            ❌ pkg 명령어 사용 불가 (Termux 전용)
+            ❌ 패키지 설치 불가
 
             💡 사용 가능한 명령어:
-            - help              도움말 표시
-            - python3 --version Python 버전 확인
-            - pip3 --version    pip 버전 확인
-            - which python3     Python 경로 확인
-            - ls                파일 목록
-            - pwd               현재 경로
-            - echo "text"       텍스트 출력
+            - help              도움말
+            - info              시스템 정보
+            - python3 --version Python 확인
+            - pip3 list         설치된 패키지
+            - which python3     Python 경로
+            - ls / pwd / cd     파일 탐색
 
-            ⚠️  Python 수동 설치 방법:
+            📦 Python 설치하려면:
 
-            1. Termux 앱 설치 (Google Play에서)
-            2. Termux에서 실행:
+            1. Termux 앱 설치 (Google Play)
+            2. **Termux 앱을 열고** 실행:
                $ pkg install python
-               $ pip install google-generativeai gemini-cli
+               $ pip install google-generativeai
+               $ pip install anthropic
 
-            3. 또는 앱의 bin 폴더에 Python 바이너리 복사
+            3. 설치 후 이 앱의 Settings에서 확인
+
+            ⚠️  이 터미널에서 "pkg" 입력하면 에러남!
+            → Termux 앱을 직접 열어서 설치하세요!
 
             명령어를 입력하세요...
 
@@ -144,7 +154,7 @@ class TerminalActivity : AppCompatActivity() {
         val helpMsg = """
             📚 도움말
 
-            === 기본 명령어 ===
+            === 이 터미널에서 가능한 명령어 ===
             help        - 이 도움말 표시
             clear       - 화면 지우기
             info        - 시스템 정보
@@ -152,23 +162,36 @@ class TerminalActivity : AppCompatActivity() {
             ls          - 파일 목록
             cd [dir]    - 디렉토리 이동
 
-            === Python 관련 ===
+            === Python 확인 (이미 설치된 경우) ===
             python3 --version       - Python 버전
             pip3 --version          - pip 버전
+            pip3 list              - 설치된 패키지 목록
             which python3           - Python 위치
 
-            === 설치 명령어 (Termux 필요) ===
-            pkg install python      - Python 설치
-            pip install [package]   - Python 패키지 설치
+            ⚠️  이 터미널에서 불가능한 것들:
+            ❌ pkg install python       (pkg는 Termux 전용!)
+            ❌ pip install [package]    (권한 없음)
+            ❌ apt, yum, dnf           (패키지 관리자 없음)
 
-            === Gemini CLI 설치 ===
-            pip install google-generativeai gemini-cli
+            === Python 설치 방법 ===
 
-            === Claude CLI 설치 ===
-            pip install anthropic-cli
+            1. Google Play에서 Termux 앱 설치
+            2. **Termux 앱을 열기** (이 터미널 아님!)
+            3. Termux에서 실행:
+               $ pkg install python
+               $ pip install google-generativeai
+               $ pip install anthropic
 
-            === Android 빌드 도구 ===
-            앱의 Settings에서 자동 설치 가능
+            4. 이 앱 Settings → Python 상태 확인
+
+            === 왜 이렇게 복잡하나요? ===
+
+            Android는 보안을 위해 앱마다 격리되어 있습니다.
+            이 앱은 명령어를 **실행**만 할 수 있고,
+            패키지를 **설치**할 권한은 없습니다.
+
+            Termux = 완전한 Linux 환경 (설치 가능)
+            이 터미널 = 명령어 실행기 (실행만 가능)
 
         """.trimIndent()
 

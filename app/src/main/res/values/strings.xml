@@ -14,4 +14,5 @@
     <string name="error_occurred">An error occurred</string>
     <string name="release_tag">Tag: %s</string>
     <string name="apk_size">Size: %s MB</string>
+    <string name="select_repository">Select a repository</string>
 </resources>

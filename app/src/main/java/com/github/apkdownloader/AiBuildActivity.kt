@@ -147,6 +147,16 @@ class AiBuildActivity : AppCompatActivity() {
         val projectPath = projectConfig.getProjectPath()
         projectPathText.text = projectPath
 
+        // Initialize spinner with placeholder
+        val placeholderAdapter = ArrayAdapter(
+            this,
+            R.layout.spinner_item_white,
+            listOf("리포지토리를 선택하세요...")
+        )
+        placeholderAdapter.setDropDownViewResource(R.layout.spinner_dropdown_item_white)
+        repositorySpinner.adapter = placeholderAdapter
+        repositorySpinner.isEnabled = false // Disable until loaded
+
         // Load branches
         loadBranches()
 
@@ -454,6 +464,7 @@ class AiBuildActivity : AppCompatActivity() {
                     )
                     adapter.setDropDownViewResource(R.layout.spinner_dropdown_item_white)
                     repositorySpinner.adapter = adapter
+                    repositorySpinner.isEnabled = true // Enable after loading
 
                     // Select previously selected repository if any
                     val selectedRepo = projectConfig.getSelectedRepository()
@@ -539,6 +550,7 @@ class AiBuildActivity : AppCompatActivity() {
                     )
                     adapter.setDropDownViewResource(R.layout.spinner_dropdown_item_white)
                     repositorySpinner.adapter = adapter
+                    repositorySpinner.isEnabled = true // Enable after loading
 
                     // Auto-select the passed repository
                     val index = repoNames.indexOf(repoFullName)

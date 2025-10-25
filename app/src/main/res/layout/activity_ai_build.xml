@@ -105,7 +105,10 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
-                        android:minHeight="48dp" />
+                        android:minHeight="48dp"
+                        android:background="@android:drawable/btn_dropdown"
+                        android:padding="12dp"
+                        android:prompt="@string/select_repository" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/selectRepositoryButton"
@@ -146,7 +149,10 @@
                         android:id="@+id/branchSpinner"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp" />
+                        android:layout_marginTop="8dp"
+                        android:minHeight="48dp"
+                        android:background="@android:drawable/btn_dropdown"
+                        android:padding="12dp" />
 
                 </LinearLayout>
 
