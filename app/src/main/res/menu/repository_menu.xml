@@ -27,6 +27,12 @@
         app:showAsAction="ifRoom" />
 
     <item
+        android:id="@+id/action_terminal"
+        android:title="💻 Terminal"
+        android:icon="@android:drawable/ic_menu_more"
+        app:showAsAction="never" />
+
+    <item
         android:id="@+id/action_settings"
         android:title="⚙️ AI Build Settings"
         android:icon="@android:drawable/ic_menu_preferences"

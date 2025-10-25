@@ -108,6 +108,10 @@ class RepositoryListActivity : AppCompatActivity() {
                 startActivity(Intent(this, AiBuildActivity::class.java))
                 true
             }
+            R.id.action_terminal -> {
+                startActivity(Intent(this, TerminalActivity::class.java))
+                true
+            }
             R.id.action_settings -> {
                 startActivity(Intent(this, SettingsActivity::class.java))
                 true

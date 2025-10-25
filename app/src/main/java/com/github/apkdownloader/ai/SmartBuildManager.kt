@@ -225,22 +225,101 @@ class SmartBuildManager(
     }
 
     /**
-     * Git pull from remote
+     * Git pull from remote (with clone if needed)
      */
     private suspend fun gitPull(branch: String): Boolean = withContext(Dispatchers.IO) {
         try {
+            val projectDir = File(projectPath)
+
+            // Check if project directory exists and is a git repository
+            val gitDir = File(projectDir, ".git")
+
+            if (!gitDir.exists()) {
+                Log.d(TAG, "Repository not cloned yet. Need to clone first.")
+                // Repository not cloned - need repository URL
+                // This requires repository information from ProjectConfig
+                Log.w(TAG, "⚠️ Git clone not implemented yet. Manual setup required.")
+                return@withContext false
+            }
+
+            // Directory exists, do git pull
+            Log.d(TAG, "Running git pull origin $branch in $projectPath")
+
             val process = ProcessBuilder(
                 "git", "pull", "origin", branch
             )
-                .directory(File(projectPath))
+                .directory(projectDir)
                 .redirectErrorStream(true)
                 .start()
 
+            val output = StringBuilder()
+            BufferedReader(InputStreamReader(process.inputStream)).use { reader ->
+                reader.forEachLine { line ->
+                    output.appendLine(line)
+                    Log.d(TAG, "git: $line")
+                }
+            }
+
             val exitCode = process.waitFor()
-            exitCode == 0
+
+            if (exitCode == 0) {
+                Log.d(TAG, "✅ Git pull successful")
+                true
+            } else {
+                Log.e(TAG, "❌ Git pull failed: $output")
+                false
+            }
 
         } catch (e: Exception) {
-            Log.e(TAG, "Git pull error: ${e.message}")
+            Log.e(TAG, "Git pull error: ${e.message}", e)
+            false
+        }
+    }
+
+    /**
+     * Clone repository from GitHub
+     */
+    suspend fun cloneRepository(repoUrl: String, targetBranch: String = "master"): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val projectDir = File(projectPath)
+
+            // Check if directory already exists
+            if (projectDir.exists() && projectDir.listFiles()?.isNotEmpty() == true) {
+                Log.d(TAG, "Directory already exists, skipping clone")
+                return@withContext true
+            }
+
+            // Create parent directory
+            projectDir.parentFile?.mkdirs()
+
+            Log.d(TAG, "Cloning $repoUrl to $projectPath")
+
+            val process = ProcessBuilder(
+                "git", "clone", "-b", targetBranch, repoUrl, projectPath
+            )
+                .redirectErrorStream(true)
+                .start()
+
+            val output = StringBuilder()
+            BufferedReader(InputStreamReader(process.inputStream)).use { reader ->
+                reader.forEachLine { line ->
+                    output.appendLine(line)
+                    Log.d(TAG, "git: $line")
+                }
+            }
+
+            val exitCode = process.waitFor()
+
+            if (exitCode == 0) {
+                Log.d(TAG, "✅ Git clone successful")
+                true
+            } else {
+                Log.e(TAG, "❌ Git clone failed: $output")
+                false
+            }
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Git clone error: ${e.message}", e)
             false
         }
     }
