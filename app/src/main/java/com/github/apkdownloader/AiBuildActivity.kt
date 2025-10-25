@@ -29,6 +29,7 @@ class AiBuildActivity : AppCompatActivity() {
     private lateinit var branchSpinner: Spinner
     private lateinit var geminiStatusText: TextView
     private lateinit var claudeStatusText: TextView
+    private lateinit var setupCliButton: MaterialButton
     private lateinit var cleanBuildCheckbox: MaterialCheckBox
     private lateinit var autoInstallCheckbox: MaterialCheckBox
     private lateinit var createPrCheckbox: MaterialCheckBox
@@ -72,6 +73,7 @@ class AiBuildActivity : AppCompatActivity() {
         branchSpinner = findViewById(R.id.branchSpinner)
         geminiStatusText = findViewById(R.id.geminiStatusText)
         claudeStatusText = findViewById(R.id.claudeStatusText)
+        setupCliButton = findViewById(R.id.setupCliButton)
         cleanBuildCheckbox = findViewById(R.id.cleanBuildCheckbox)
         autoInstallCheckbox = findViewById(R.id.autoInstallCheckbox)
         createPrCheckbox = findViewById(R.id.createPrCheckbox)
@@ -85,6 +87,10 @@ class AiBuildActivity : AppCompatActivity() {
     private fun setupListeners() {
         changeProjectButton.setOnClickListener {
             showProjectLocationDialog()
+        }
+
+        setupCliButton.setOnClickListener {
+            startActivity(Intent(this, CliSetupActivity::class.java))
         }
 
         smartBuildButton.setOnClickListener {

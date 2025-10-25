@@ -195,6 +195,15 @@
 
                     </LinearLayout>
 
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/setupCliButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:text="⚙️ Setup AI CLIs"
+                        android:textSize="12sp"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+
                 </LinearLayout>
 
             </com.google.android.material.card.MaterialCardView>

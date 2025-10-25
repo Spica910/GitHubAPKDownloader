@@ -55,6 +55,11 @@
             android:exported="false"
             android:label="AI Build" />
 
+        <activity
+            android:name=".CliSetupActivity"
+            android:exported="false"
+            android:label="CLI Setup" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
