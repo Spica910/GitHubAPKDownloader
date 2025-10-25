@@ -19,31 +19,58 @@ class CliInstaller(private val context: Context) {
 
     companion object {
         private const val TAG = "CliInstaller"
-
-        // Termux paths
-        private const val TERMUX_BASH = "/data/data/com.termux/files/usr/bin/bash"
-        private const val TERMUX_BIN = "/data/data/com.termux/files/usr/bin"
     }
 
     /**
-     * Execute command in Termux environment
+     * Execute command using system shell with Termux environment
      */
-    private suspend fun executeInTermux(command: String): Pair<Int, String> = withContext(Dispatchers.IO) {
+    private suspend fun executeCommand(command: String): Pair<Int, String> = withContext(Dispatchers.IO) {
         try {
-            Log.d(TAG, "Executing in Termux: $command")
+            Log.d(TAG, "Executing command: $command")
 
-            val process = ProcessBuilder(TERMUX_BASH, "-c", command)
-                .redirectErrorStream(true)
-                .start()
+            // Try multiple shell approaches
+            val shellPaths = listOf(
+                "/data/data/com.termux/files/usr/bin/bash",
+                "/system/bin/sh"
+            )
 
-            val output = BufferedReader(InputStreamReader(process.inputStream)).use {
-                it.readText()
+            var lastError = ""
+            for (shell in shellPaths) {
+                try {
+                    // Set up Termux environment variables
+                    val env = mapOf(
+                        "PATH" to "/data/data/com.termux/files/usr/bin:/system/bin:/system/xbin",
+                        "PREFIX" to "/data/data/com.termux/files/usr",
+                        "HOME" to "/data/data/com.termux/files/home",
+                        "TMPDIR" to "/data/data/com.termux/files/usr/tmp"
+                    )
+
+                    val processBuilder = ProcessBuilder(shell, "-c", command)
+                    processBuilder.environment().putAll(env)
+
+                    val process = processBuilder
+                        .redirectErrorStream(true)
+                        .start()
+
+                    val output = BufferedReader(InputStreamReader(process.inputStream)).use {
+                        it.readText()
+                    }
+
+                    val exitCode = process.waitFor()
+                    Log.d(TAG, "Exit code: $exitCode, Output: $output")
+
+                    if (!output.contains("No such file or directory") || exitCode == 0) {
+                        return@withContext Pair(exitCode, output)
+                    }
+                    lastError = output
+                } catch (e: Exception) {
+                    lastError = e.message ?: "Unknown error"
+                    Log.e(TAG, "Failed with shell $shell: $lastError")
+                    continue
+                }
             }
 
-            val exitCode = process.waitFor()
-            Log.d(TAG, "Exit code: $exitCode, Output: $output")
-
-            Pair(exitCode, output)
+            Pair(-1, lastError)
         } catch (e: Exception) {
             Log.e(TAG, "Error executing command: ${e.message}", e)
             Pair(-1, e.message ?: "Unknown error")
@@ -51,12 +78,13 @@ class CliInstaller(private val context: Context) {
     }
 
     /**
-     * Check installation status of both CLIs
+     * Check installation status of both CLIs and build tools
      */
     suspend fun checkInstallationStatus(): InstallationStatus = withContext(Dispatchers.IO) {
         val geminiInstalled = isGeminiInstalled()
         val claudeInstalled = isClaudeInstalled()
         val claudeAuthenticated = if (claudeInstalled) isClaudeAuthenticated() else false
+        val androidToolsInstalled = isAndroidToolsInstalled()
 
         InstallationStatus(
             geminiInstalled = geminiInstalled,
@@ -64,8 +92,115 @@ class CliInstaller(private val context: Context) {
             claudeAuthenticated = claudeAuthenticated,
             pythonAvailable = isPythonAvailable(),
             npmAvailable = isNpmAvailable(),
-            pkgAvailable = isPkgAvailable()
+            pkgAvailable = isPkgAvailable(),
+            androidToolsInstalled = androidToolsInstalled
         )
+    }
+
+    /**
+     * Install lzhiyong's android-tools for building APKs
+     */
+    suspend fun installAndroidTools(): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            _installProgress.value = InstallProgress.Installing("Android Build Tools")
+
+            // Install required packages first
+            Log.d(TAG, "Installing dependencies...")
+            _installProgress.value = InstallProgress.Installing("Installing dependencies...")
+
+            val dependencies = listOf("git", "wget", "tar", "unzip")
+            for (dep in dependencies) {
+                val (exitCode, _) = executeCommand("pkg install $dep -y")
+                if (exitCode != 0 && !isCommandAvailable(dep)) {
+                    Log.w(TAG, "Failed to install $dep, continuing anyway...")
+                }
+            }
+
+            // Clone lzhiyong's android-tools repository
+            Log.d(TAG, "Cloning android-tools repository...")
+            _installProgress.value = InstallProgress.Installing("Downloading android-tools...")
+
+            val androidToolsPath = "/data/data/com.termux/files/home/android-tools"
+            val (cloneExit, cloneOutput) = executeCommand("""
+                if [ -d "$androidToolsPath" ]; then
+                    cd $androidToolsPath && git pull
+                else
+                    git clone https://github.com/lzhiyong/android-sdk-tools.git $androidToolsPath
+                fi
+            """.trimIndent())
+
+            if (cloneExit != 0) {
+                return@withContext Result.failure(Exception("Failed to clone repository: $cloneOutput"))
+            }
+
+            // Install android-tools via pkg (if available in termux-root)
+            Log.d(TAG, "Installing android-tools via pkg...")
+            _installProgress.value = InstallProgress.Installing("Installing build tools...")
+
+            val (installExit, installOutput) = executeCommand("pkg install android-tools -y")
+
+            if (installExit == 0 || isAndroidToolsInstalled()) {
+                Log.d(TAG, "Android Tools installed successfully")
+                _installProgress.value = InstallProgress.Success("Android Tools installed!")
+                Result.success("Android build tools installed successfully")
+            } else {
+                // Try alternative method: download prebuilt binaries
+                Log.d(TAG, "Trying alternative installation method...")
+                _installProgress.value = InstallProgress.Installing("Installing prebuilt tools...")
+
+                val (altExit, altOutput) = executeCommand("""
+                    mkdir -p ~/android-sdk/build-tools/34.0.0
+                    cd ~/android-sdk/build-tools/34.0.0
+                    wget https://github.com/lzhiyong/android-sdk-tools/releases/latest/download/android-sdk-tools-static-aarch64.zip
+                    unzip -o android-sdk-tools-static-aarch64.zip
+                    chmod +x aapt aapt2 zipalign apksigner
+                """.trimIndent())
+
+                if (altExit == 0 || isAndroidToolsInstalled()) {
+                    _installProgress.value = InstallProgress.Success("Android Tools installed!")
+                    Result.success("Android build tools installed successfully (prebuilt)")
+                } else {
+                    _installProgress.value = InstallProgress.Failed("Installation failed")
+                    Result.failure(Exception("All installation methods failed: $altOutput"))
+                }
+            }
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error installing Android Tools: ${e.message}", e)
+            _installProgress.value = InstallProgress.Failed(e.message ?: "Unknown error")
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Check if android build tools are installed
+     */
+    private suspend fun isAndroidToolsInstalled(): Boolean = withContext(Dispatchers.IO) {
+        try {
+            // Check for aapt2 which is a key build tool
+            val commands = listOf("aapt2", "~/android-sdk/build-tools/34.0.0/aapt2")
+            for (cmd in commands) {
+                val (exitCode, _) = executeCommand("which $cmd || test -f $cmd")
+                if (exitCode == 0) {
+                    return@withContext true
+                }
+            }
+            false
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Check if a command is available
+     */
+    private suspend fun isCommandAvailable(command: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val (exitCode, _) = executeCommand("which $command")
+            exitCode == 0
+        } catch (e: Exception) {
+            false
+        }
     }
 
     /**
@@ -91,7 +226,7 @@ class CliInstaller(private val context: Context) {
             Log.d(TAG, "Installing gemini-cli via pip...")
             _installProgress.value = InstallProgress.Installing("Installing gemini-cli via pip...")
 
-            val (exitCode, output) = executeInTermux("pip install google-generativeai gemini-cli -q")
+            val (exitCode, output) = executeCommand("pip install google-generativeai gemini-cli -q")
 
             if (exitCode == 0 || isGeminiInstalled()) {
                 Log.d(TAG, "Gemini CLI installed successfully")
@@ -136,7 +271,7 @@ class CliInstaller(private val context: Context) {
                     Log.d(TAG, "Trying installation method ${index + 1}: $cmd")
                     _installProgress.value = InstallProgress.Installing("Method ${index + 1}/3...")
 
-                    val (exitCode, output) = executeInTermux(cmd)
+                    val (exitCode, output) = executeCommand(cmd)
 
                     if (exitCode == 0 || isClaudeInstalled()) {
                         installed = true
@@ -175,7 +310,7 @@ class CliInstaller(private val context: Context) {
             _installProgress.value = InstallProgress.Installing("Authenticating Claude...")
 
             // Start Claude authentication using Termux environment
-            val (exitCode, output) = executeInTermux("claude login")
+            val (exitCode, output) = executeCommand("claude login")
 
             // Extract authentication URL if present
             val authUrl = output.lines().firstOrNull {
@@ -208,7 +343,7 @@ class CliInstaller(private val context: Context) {
             Log.d(TAG, "Installing Python via pkg...")
             _installProgress.value = InstallProgress.Installing("Installing Python...")
 
-            val (exitCode, output) = executeInTermux("pkg install python -y")
+            val (exitCode, output) = executeCommand("pkg install python -y")
 
             if (exitCode == 0) {
                 Log.d(TAG, "Python installed successfully")
@@ -233,7 +368,7 @@ class CliInstaller(private val context: Context) {
 
             for (cmd in commands) {
                 try {
-                    val (exitCode, _) = executeInTermux("which ${cmd.split(" ").first()}")
+                    val (exitCode, _) = executeCommand("which ${cmd.split(" ").first()}")
                     if (exitCode == 0) {
                         return@withContext true
                     }
@@ -253,7 +388,7 @@ class CliInstaller(private val context: Context) {
      */
     private suspend fun isClaudeInstalled(): Boolean = withContext(Dispatchers.IO) {
         try {
-            val (exitCode, _) = executeInTermux("which claude")
+            val (exitCode, _) = executeCommand("which claude")
             exitCode == 0
 
         } catch (e: Exception) {
@@ -266,7 +401,7 @@ class CliInstaller(private val context: Context) {
      */
     private suspend fun isClaudeAuthenticated(): Boolean = withContext(Dispatchers.IO) {
         try {
-            val (exitCode, _) = executeInTermux("claude --version")
+            val (exitCode, _) = executeCommand("claude --version")
 
             // If version command works, likely authenticated
             exitCode == 0
@@ -281,7 +416,7 @@ class CliInstaller(private val context: Context) {
      */
     private suspend fun isPythonAvailable(): Boolean = withContext(Dispatchers.IO) {
         try {
-            val (exitCode, _) = executeInTermux("which python")
+            val (exitCode, _) = executeCommand("which python")
             exitCode == 0
         } catch (e: Exception) {
             false
@@ -293,7 +428,7 @@ class CliInstaller(private val context: Context) {
      */
     private suspend fun isNpmAvailable(): Boolean = withContext(Dispatchers.IO) {
         try {
-            val (exitCode, _) = executeInTermux("which npm")
+            val (exitCode, _) = executeCommand("which npm")
             exitCode == 0
         } catch (e: Exception) {
             false
@@ -305,7 +440,7 @@ class CliInstaller(private val context: Context) {
      */
     private suspend fun isPkgAvailable(): Boolean = withContext(Dispatchers.IO) {
         try {
-            val (exitCode, _) = executeInTermux("which pkg")
+            val (exitCode, _) = executeCommand("which pkg")
             exitCode == 0
         } catch (e: Exception) {
             false
@@ -330,6 +465,18 @@ class CliInstaller(private val context: Context) {
                 "3. Authenticate: claude login",
                 "4. Follow the browser prompts to complete authentication",
                 "5. Verify: claude --version"
+            ),
+            androidToolsSteps = listOf(
+                "1. Install dependencies: pkg install git wget unzip",
+                "2. Option A - Via pkg:",
+                "   pkg install android-tools",
+                "3. Option B - Prebuilt binaries:",
+                "   mkdir -p ~/android-sdk/build-tools/34.0.0",
+                "   cd ~/android-sdk/build-tools/34.0.0",
+                "   wget https://github.com/lzhiyong/android-sdk-tools/releases/latest/download/android-sdk-tools-static-aarch64.zip",
+                "   unzip android-sdk-tools-static-aarch64.zip",
+                "   chmod +x aapt aapt2 zipalign apksigner",
+                "4. Verify: aapt2 version"
             )
         )
     }
@@ -355,16 +502,18 @@ data class InstallationStatus(
     val claudeAuthenticated: Boolean,
     val pythonAvailable: Boolean,
     val npmAvailable: Boolean,
-    val pkgAvailable: Boolean
+    val pkgAvailable: Boolean,
+    val androidToolsInstalled: Boolean
 ) {
     val allReady: Boolean
-        get() = geminiInstalled && claudeInstalled && claudeAuthenticated
+        get() = geminiInstalled && claudeInstalled && claudeAuthenticated && androidToolsInstalled
 
     val missingComponents: List<String>
         get() = buildList {
             if (!geminiInstalled) add("Gemini CLI")
             if (!claudeInstalled) add("Claude CLI")
             if (claudeInstalled && !claudeAuthenticated) add("Claude Authentication")
+            if (!androidToolsInstalled) add("Android Build Tools")
         }
 }
 
@@ -373,5 +522,6 @@ data class InstallationStatus(
  */
 data class InstallInstructions(
     val geminiSteps: List<String>,
-    val claudeSteps: List<String>
+    val claudeSteps: List<String>,
+    val androidToolsSteps: List<String>
 )

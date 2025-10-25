@@ -22,11 +22,14 @@ class CliSetupActivity : AppCompatActivity() {
     // UI components
     private lateinit var geminiStatusBadge: TextView
     private lateinit var claudeStatusBadge: TextView
+    private lateinit var androidToolsStatusBadge: TextView
     private lateinit var installGeminiButton: MaterialButton
     private lateinit var showGeminiInstructionsButton: MaterialButton
     private lateinit var installClaudeButton: MaterialButton
     private lateinit var authenticateClaudeButton: MaterialButton
     private lateinit var showClaudeInstructionsButton: MaterialButton
+    private lateinit var installAndroidToolsButton: MaterialButton
+    private lateinit var showAndroidToolsInstructionsButton: MaterialButton
     private lateinit var progressCard: MaterialCardView
     private lateinit var progressText: TextView
     private lateinit var progressBar: ProgressBar
@@ -48,11 +51,14 @@ class CliSetupActivity : AppCompatActivity() {
     private fun initializeViews() {
         geminiStatusBadge = findViewById(R.id.geminiStatusBadge)
         claudeStatusBadge = findViewById(R.id.claudeStatusBadge)
+        androidToolsStatusBadge = findViewById(R.id.androidToolsStatusBadge)
         installGeminiButton = findViewById(R.id.installGeminiButton)
         showGeminiInstructionsButton = findViewById(R.id.showGeminiInstructionsButton)
         installClaudeButton = findViewById(R.id.installClaudeButton)
         authenticateClaudeButton = findViewById(R.id.authenticateClaudeButton)
         showClaudeInstructionsButton = findViewById(R.id.showClaudeInstructionsButton)
+        installAndroidToolsButton = findViewById(R.id.installAndroidToolsButton)
+        showAndroidToolsInstructionsButton = findViewById(R.id.showAndroidToolsInstructionsButton)
         progressCard = findViewById(R.id.progressCard)
         progressText = findViewById(R.id.progressText)
         progressBar = findViewById(R.id.progressBar)
@@ -79,6 +85,14 @@ class CliSetupActivity : AppCompatActivity() {
 
         showClaudeInstructionsButton.setOnClickListener {
             showManualInstructions("Claude")
+        }
+
+        installAndroidToolsButton.setOnClickListener {
+            installAndroidTools()
+        }
+
+        showAndroidToolsInstructionsButton.setOnClickListener {
+            showManualInstructions("AndroidTools")
         }
 
         skipButton.setOnClickListener {
@@ -132,6 +146,17 @@ class CliSetupActivity : AppCompatActivity() {
                         claudeStatusBadge.setBackgroundColor(getColor(android.R.color.holo_red_dark))
                         authenticateClaudeButton.visibility = View.GONE
                     }
+                }
+
+                // Update Android Tools status
+                if (status.androidToolsInstalled) {
+                    androidToolsStatusBadge.text = "✅ Installed"
+                    androidToolsStatusBadge.setBackgroundColor(getColor(android.R.color.holo_green_dark))
+                    installAndroidToolsButton.isEnabled = false
+                    installAndroidToolsButton.text = "✅ Build Tools Installed"
+                } else {
+                    androidToolsStatusBadge.text = "❌ Not Installed"
+                    androidToolsStatusBadge.setBackgroundColor(getColor(android.R.color.holo_red_dark))
                 }
 
                 // Enable continue button if at least one AI is ready
@@ -203,6 +228,22 @@ class CliSetupActivity : AppCompatActivity() {
         }
     }
 
+    private fun installAndroidTools() {
+        lifecycleScope.launch {
+            progressCard.visibility = View.VISIBLE
+            installAndroidToolsButton.isEnabled = false
+
+            val result = cliInstaller.installAndroidTools()
+
+            result.onSuccess {
+                checkInstallationStatus()
+            }.onFailure {
+                showError("Android Tools Installation Failed", it.message ?: "Unknown error")
+                installAndroidToolsButton.isEnabled = true
+            }
+        }
+    }
+
     private fun observeProgress() {
         lifecycleScope.launch {
             cliInstaller.installProgress.collect { progress ->
@@ -249,16 +290,22 @@ class CliSetupActivity : AppCompatActivity() {
     private fun showManualInstructions(cliName: String) {
         val instructions = cliInstaller.getManualInstructions()
 
-        val steps = if (cliName == "Gemini") {
-            instructions.geminiSteps
-        } else {
-            instructions.claudeSteps
+        val steps = when (cliName) {
+            "Gemini" -> instructions.geminiSteps
+            "Claude" -> instructions.claudeSteps
+            "AndroidTools" -> instructions.androidToolsSteps
+            else -> instructions.geminiSteps
+        }
+
+        val title = when (cliName) {
+            "AndroidTools" -> "Android Build Tools Installation"
+            else -> "$cliName CLI Installation"
         }
 
         val message = steps.joinToString("\n\n")
 
         AlertDialog.Builder(this)
-            .setTitle("$cliName CLI Installation")
+            .setTitle(title)
             .setMessage(message)
             .setPositiveButton("OK", null)
             .setNeutralButton("Copy Steps") { _, _ ->
