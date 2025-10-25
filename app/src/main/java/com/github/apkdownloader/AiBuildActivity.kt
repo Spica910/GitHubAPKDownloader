@@ -425,17 +425,40 @@ class AiBuildActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 // Get authenticated user's repositories
-                val prefs = getSharedPreferences("github_auth", MODE_PRIVATE)
-                val token = prefs.getString("access_token", null)
+                val token = GitHubAuthHelper.getToken(this@AiBuildActivity)
+
+                android.util.Log.d("AiBuild", "Token: ${if (token != null) "Found" else "NULL"}")
 
                 if (token.isNullOrEmpty()) {
+                    android.util.Log.e("AiBuild", "No GitHub token found!")
+
+                    // Keep placeholder visible
+                    val errorAdapter = ArrayAdapter(
+                        this@AiBuildActivity,
+                        R.layout.spinner_item_white,
+                        listOf("❌ GitHub 로그인 필요")
+                    )
+                    errorAdapter.setDropDownViewResource(R.layout.spinner_dropdown_item_white)
+                    repositorySpinner.adapter = errorAdapter
+                    repositorySpinner.isEnabled = false
+
                     Toast.makeText(
                         this@AiBuildActivity,
-                        "Please login to GitHub first",
-                        Toast.LENGTH_SHORT
+                        "GitHub 로그인이 필요합니다.\n메인 화면에서 로그인하세요.",
+                        Toast.LENGTH_LONG
                     ).show()
                     return@launch
                 }
+
+                // Show loading state
+                val loadingAdapter = ArrayAdapter(
+                    this@AiBuildActivity,
+                    R.layout.spinner_item_white,
+                    listOf("⏳ 리포지토리 로딩 중...")
+                )
+                loadingAdapter.setDropDownViewResource(R.layout.spinner_dropdown_item_white)
+                repositorySpinner.adapter = loadingAdapter
+                repositorySpinner.isEnabled = false
 
                 // Fetch repositories from GitHub API
                 val response = RetrofitClient.gitHubApiService.getUserRepositories(
@@ -490,19 +513,40 @@ class AiBuildActivity : AppCompatActivity() {
                     val errorBody = response.errorBody()?.string()
                     android.util.Log.e("AiBuild", "Failed to load repositories: ${response.code()} - $errorBody")
 
+                    // Show error in spinner
+                    val errorAdapter = ArrayAdapter(
+                        this@AiBuildActivity,
+                        R.layout.spinner_item_white,
+                        listOf("❌ 로딩 실패: ${response.code()}")
+                    )
+                    errorAdapter.setDropDownViewResource(R.layout.spinner_dropdown_item_white)
+                    repositorySpinner.adapter = errorAdapter
+                    repositorySpinner.isEnabled = false
+
                     Toast.makeText(
                         this@AiBuildActivity,
-                        "Failed: ${response.code()} - Check if you're logged in to GitHub",
+                        "리포지토리 로딩 실패: ${response.code()}\nGitHub 로그인 상태를 확인하세요",
                         Toast.LENGTH_LONG
                     ).show()
                 }
 
             } catch (e: Exception) {
                 android.util.Log.e("AiBuild", "Error loading repositories: ${e.message}", e)
+
+                // Show error in spinner
+                val errorAdapter = ArrayAdapter(
+                    this@AiBuildActivity,
+                    R.layout.spinner_item_white,
+                    listOf("❌ 에러 발생")
+                )
+                errorAdapter.setDropDownViewResource(R.layout.spinner_dropdown_item_white)
+                repositorySpinner.adapter = errorAdapter
+                repositorySpinner.isEnabled = false
+
                 Toast.makeText(
                     this@AiBuildActivity,
-                    "Error: ${e.message}",
-                    Toast.LENGTH_SHORT
+                    "에러: ${e.message}",
+                    Toast.LENGTH_LONG
                 ).show()
             }
         }
@@ -514,8 +558,7 @@ class AiBuildActivity : AppCompatActivity() {
     private fun loadUserRepositoriesAndSelect(repoFullName: String) {
         lifecycleScope.launch {
             try {
-                val prefs = getSharedPreferences("github_auth", MODE_PRIVATE)
-                val token = prefs.getString("access_token", null)
+                val token = GitHubAuthHelper.getToken(this@AiBuildActivity)
 
                 if (token.isNullOrEmpty()) {
                     Toast.makeText(
