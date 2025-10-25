@@ -37,10 +37,26 @@ class BuiltInInstaller(private val context: Context) {
     suspend fun checkInstallationStatus(): InstallationStatus = withContext(Dispatchers.IO) {
         val pythonInstalled = terminal.isCommandAvailable("python3")
         val pipInstalled = terminal.isCommandAvailable("pip3")
-        val geminiInstalled = terminal.isCommandAvailable("gemini-cli") ||
-                              terminal.isCommandAvailable("python3 -m gemini_cli")
-        val claudeInstalled = terminal.isCommandAvailable("claude")
+
+        // Check Gemini: try binary and Python module
+        var geminiInstalled = terminal.isCommandAvailable("gemini-cli")
+        if (!geminiInstalled && pythonInstalled) {
+            // Try as Python module
+            val result = terminal.execute("python3 -c \"import google.generativeai\"")
+            geminiInstalled = result.success
+        }
+
+        // Check Claude: try binary first
+        var claudeInstalled = terminal.isCommandAvailable("claude")
+        if (!claudeInstalled && pythonInstalled) {
+            // Try as Python package
+            val result = terminal.execute("python3 -c \"import anthropic\"")
+            claudeInstalled = result.success
+        }
+
         val androidToolsInstalled = terminal.isCommandAvailable("aapt2")
+
+        Log.d(TAG, "Status Check - Python: $pythonInstalled, Pip: $pipInstalled, Gemini: $geminiInstalled, Claude: $claudeInstalled, Android Tools: $androidToolsInstalled")
 
         InstallationStatus(
             geminiInstalled = geminiInstalled,

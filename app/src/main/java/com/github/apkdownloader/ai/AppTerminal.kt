@@ -85,10 +85,15 @@ class AppTerminal(private val context: Context) {
     private fun buildEnvironment(): Map<String, String> {
         val nativeLibDir = context.applicationInfo.nativeLibraryDir
 
+        // Include Termux paths if available
+        val termuxPrefix = "/data/data/com.termux/files/usr"
+        val termuxBin = "$termuxPrefix/bin"
+        val termuxLib = "$termuxPrefix/lib"
+
         return mapOf(
             "HOME" to appHomeDir.absolutePath,
-            "PATH" to "${appBinDir.absolutePath}:${nativeLibDir}:/system/bin:/system/xbin",
-            "LD_LIBRARY_PATH" to "${appLibDir.absolutePath}:${nativeLibDir}",
+            "PATH" to "${appBinDir.absolutePath}:${termuxBin}:${nativeLibDir}:/system/bin:/system/xbin",
+            "LD_LIBRARY_PATH" to "${appLibDir.absolutePath}:${termuxLib}:${nativeLibDir}",
             "TMPDIR" to context.cacheDir.absolutePath,
             "PREFIX" to appHomeDir.absolutePath
         )
@@ -98,8 +103,26 @@ class AppTerminal(private val context: Context) {
      * Check if a command/binary is available
      */
     suspend fun isCommandAvailable(command: String): Boolean {
-        val result = execute("which $command || test -f ${appBinDir}/$command")
-        return result.success
+        // Check in multiple locations
+        val termuxBin = "/data/data/com.termux/files/usr/bin"
+
+        // First try which command (uses PATH)
+        val whichResult = execute("which $command")
+        if (whichResult.success && whichResult.output.isNotBlank()) {
+            return true
+        }
+
+        // Check app's bin directory
+        if (File(appBinDir, command).exists()) {
+            return true
+        }
+
+        // Check Termux bin directory
+        if (File(termuxBin, command).exists()) {
+            return true
+        }
+
+        return false
     }
 
     /**

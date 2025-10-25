@@ -163,10 +163,10 @@ class AiBuildActivity : AppCompatActivity() {
                 val branches = listOf("master", "main", "develop") // TODO: Get from git
                 val adapter = ArrayAdapter(
                     this@AiBuildActivity,
-                    android.R.layout.simple_spinner_item,
+                    R.layout.spinner_item_white,
                     branches
                 )
-                adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+                adapter.setDropDownViewResource(R.layout.spinner_dropdown_item_white)
                 branchSpinner.adapter = adapter
 
                 // Select default branch
@@ -449,10 +449,10 @@ class AiBuildActivity : AppCompatActivity() {
 
                     val adapter = ArrayAdapter(
                         this@AiBuildActivity,
-                        android.R.layout.simple_spinner_item,
+                        R.layout.spinner_item_white,
                         repoNames
                     )
-                    adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+                    adapter.setDropDownViewResource(R.layout.spinner_dropdown_item_white)
                     repositorySpinner.adapter = adapter
 
                     // Select previously selected repository if any
@@ -534,10 +534,10 @@ class AiBuildActivity : AppCompatActivity() {
                     val repoNames = userRepositories.map { it.fullName }
                     val adapter = ArrayAdapter(
                         this@AiBuildActivity,
-                        android.R.layout.simple_spinner_item,
+                        R.layout.spinner_item_white,
                         repoNames
                     )
-                    adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+                    adapter.setDropDownViewResource(R.layout.spinner_dropdown_item_white)
                     repositorySpinner.adapter = adapter
 
                     // Auto-select the passed repository
