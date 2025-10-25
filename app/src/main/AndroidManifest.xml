@@ -50,6 +50,11 @@
             android:exported="false"
             android:label="Select File" />
 
+        <activity
+            android:name=".AiBuildActivity"
+            android:exported="false"
+            android:label="AI Build" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

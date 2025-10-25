@@ -101,6 +101,10 @@ class RepositoryListActivity : AppCompatActivity() {
                 showCreateRepositoryDialog()
                 true
             }
+            R.id.action_ai_build -> {
+                startActivity(Intent(this, AiBuildActivity::class.java))
+                true
+            }
             R.id.action_logout -> {
                 GitHubAuthHelper.clearToken(this)
                 startActivity(Intent(this, MainActivity::class.java))

@@ -22,6 +22,11 @@
         app:showAsAction="ifRoom" />
 
     <item
+        android:id="@+id/action_ai_build"
+        android:title="🤖 AI Build"
+        app:showAsAction="ifRoom" />
+
+    <item
         android:id="@+id/action_logout"
         android:title="@string/logout"
         app:showAsAction="never" />
