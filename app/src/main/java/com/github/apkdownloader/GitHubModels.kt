@@ -124,7 +124,9 @@ data class ApkInfo(
     val downloadUrl: String,
     val location: String,
     val size: Long,
-    val source: ApkSource = ApkSource.RELEASE
+    val source: ApkSource = ApkSource.RELEASE,
+    var packageInfo: ApkPackageInfo? = null,
+    var updateInfo: ApkUpdateInfo? = null
 )
 
 enum class ApkSource {

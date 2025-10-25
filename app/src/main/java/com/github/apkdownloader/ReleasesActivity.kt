@@ -44,9 +44,14 @@ class ReleasesActivity : AppCompatActivity() {
         progressBar = findViewById(R.id.progressBar)
         emptyView = findViewById(R.id.emptyView)
 
-        allApksAdapter = AllApksAdapter { apkInfo ->
-            downloadApk(apkInfo)
-        }
+        allApksAdapter = AllApksAdapter(
+            onDownloadClick = { apkInfo ->
+                downloadApk(apkInfo)
+            },
+            onInfoClick = { apkInfo ->
+                showApkInfo(apkInfo)
+            }
+        )
 
         recyclerView.adapter = allApksAdapter
 
@@ -242,5 +247,87 @@ class ReleasesActivity : AppCompatActivity() {
         val downloader = ApkDownloader(this)
         val token = GitHubAuthHelper.getToken(this)
         downloader.downloadApkFromInfo(apkInfo, token)
+    }
+
+    private fun showApkInfo(apkInfo: ApkInfo) {
+        progressBar.visibility = View.VISIBLE
+
+        lifecycleScope.launch {
+            try {
+                val token = GitHubAuthHelper.getToken(this@ReleasesActivity)
+                val extractor = ApkInfoExtractor(this@ReleasesActivity)
+
+                // Extract APK package info
+                val packageInfo = extractor.extractApkInfo(apkInfo.downloadUrl, token)
+
+                progressBar.visibility = View.GONE
+
+                if (packageInfo != null) {
+                    // Update the apkInfo object
+                    apkInfo.packageInfo = packageInfo
+
+                    // Check for updates
+                    val updateInfo = extractor.checkForUpdate(packageInfo.packageName, packageInfo.versionCode)
+                    apkInfo.updateInfo = updateInfo
+
+                    // Refresh the adapter to show the new info
+                    allApksAdapter.notifyDataSetChanged()
+
+                    // Show detailed info dialog
+                    val message = buildString {
+                        appendLine("📦 Package: ${packageInfo.packageName}")
+                        appendLine("📱 App Name: ${packageInfo.appName}")
+                        appendLine("🔢 Version: ${packageInfo.versionName} (${packageInfo.versionCode})")
+                        appendLine("📊 Size: ${formatFileSize(apkInfo.size)}")
+                        packageInfo.minSdkVersion?.let { appendLine("📱 Min SDK: $it") }
+                        packageInfo.targetSdkVersion?.let { appendLine("🎯 Target SDK: $it") }
+                        appendLine()
+                        if (updateInfo.isInstalled) {
+                            appendLine("✅ App is installed")
+                            appendLine("Current version: ${updateInfo.installedVersionName} (${updateInfo.installedVersionCode})")
+                            if (updateInfo.isUpdateAvailable) {
+                                appendLine()
+                                appendLine("🔄 UPDATE AVAILABLE!")
+                            } else {
+                                appendLine()
+                                appendLine("✅ Already up to date")
+                            }
+                        } else {
+                            appendLine("❌ App not installed")
+                        }
+                    }
+
+                    android.app.AlertDialog.Builder(this@ReleasesActivity)
+                        .setTitle("APK Information")
+                        .setMessage(message)
+                        .setPositiveButton("OK", null)
+                        .setNeutralButton("Download") { _, _ ->
+                            downloadApk(apkInfo)
+                        }
+                        .show()
+                } else {
+                    Toast.makeText(
+                        this@ReleasesActivity,
+                        "Failed to extract APK information",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            } catch (e: Exception) {
+                progressBar.visibility = View.GONE
+                Toast.makeText(
+                    this@ReleasesActivity,
+                    "Error: ${e.message}",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+    }
+
+    private fun formatFileSize(size: Long): String {
+        return when {
+            size < 1024 -> "$size B"
+            size < 1024 * 1024 -> "${size / 1024} KB"
+            else -> String.format("%.1f MB", size / (1024.0 * 1024.0))
+        }
     }
 }
