@@ -63,6 +63,17 @@ class AiBuildActivity : AppCompatActivity() {
         setupListeners()
         loadConfiguration()
         checkAiAvailability()
+
+        // Check if repository was passed from repository list
+        val repoFullName = intent.getStringExtra("repoFullName")
+        val owner = intent.getStringExtra("owner")
+        val repo = intent.getStringExtra("repo")
+
+        if (repoFullName != null && owner != null && repo != null) {
+            // Repository was selected from list, auto-load it
+            android.util.Log.d("AiBuild", "Auto-loading repository: $repoFullName")
+            loadUserRepositoriesAndSelect(repoFullName)
+        }
     }
 
     override fun onSupportNavigateUp(): Boolean {
@@ -476,6 +487,92 @@ class AiBuildActivity : AppCompatActivity() {
                 Toast.makeText(
                     this@AiBuildActivity,
                     "Error: ${e.message}",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+    }
+
+    /**
+     * Load repositories and auto-select the specified one
+     */
+    private fun loadUserRepositoriesAndSelect(repoFullName: String) {
+        lifecycleScope.launch {
+            try {
+                val prefs = getSharedPreferences("github_auth", MODE_PRIVATE)
+                val token = prefs.getString("access_token", null)
+
+                if (token.isNullOrEmpty()) {
+                    Toast.makeText(
+                        this@AiBuildActivity,
+                        "GitHub 로그인이 필요합니다",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    return@launch
+                }
+
+                // Fetch repositories
+                val response = RetrofitClient.gitHubApiService.getUserRepositories(
+                    "Bearer $token",
+                    perPage = 100
+                )
+
+                if (response.isSuccessful && response.body() != null) {
+                    userRepositories = response.body()!!
+
+                    android.util.Log.d("AiBuild", "Loaded ${userRepositories.size} repositories, selecting: $repoFullName")
+
+                    if (userRepositories.isEmpty()) {
+                        Toast.makeText(
+                            this@AiBuildActivity,
+                            "리포지토리가 없습니다",
+                            Toast.LENGTH_LONG
+                        ).show()
+                        return@launch
+                    }
+
+                    val repoNames = userRepositories.map { it.fullName }
+                    val adapter = ArrayAdapter(
+                        this@AiBuildActivity,
+                        android.R.layout.simple_spinner_item,
+                        repoNames
+                    )
+                    adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+                    repositorySpinner.adapter = adapter
+
+                    // Auto-select the passed repository
+                    val index = repoNames.indexOf(repoFullName)
+                    if (index >= 0) {
+                        repositorySpinner.setSelection(index)
+                        android.util.Log.d("AiBuild", "Selected repository at index: $index")
+                        Toast.makeText(
+                            this@AiBuildActivity,
+                            "✓ $repoFullName 선택됨",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    } else {
+                        android.util.Log.w("AiBuild", "Repository $repoFullName not found in list")
+                        Toast.makeText(
+                            this@AiBuildActivity,
+                            "리포지토리를 찾을 수 없습니다: $repoFullName",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+
+                } else {
+                    android.util.Log.e("AiBuild", "Failed to load repositories: ${response.code()}")
+                    Toast.makeText(
+                        this@AiBuildActivity,
+                        "리포지토리 로딩 실패: ${response.code()}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+
+            } catch (e: Exception) {
+                android.util.Log.e("AiBuild", "Error: ${e.message}", e)
+                Toast.makeText(
+                    this@AiBuildActivity,
+                    "에러: ${e.message}",
                     Toast.LENGTH_SHORT
                 ).show()
             }

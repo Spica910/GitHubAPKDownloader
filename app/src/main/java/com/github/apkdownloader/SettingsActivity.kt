@@ -21,6 +21,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var builtInInstaller: BuiltInInstaller
 
     // UI components
+    private lateinit var openTerminalButton: MaterialButton
     private lateinit var pythonStatusBadge: TextView
     private lateinit var geminiStatusBadge: TextView
     private lateinit var claudeStatusBadge: TextView
@@ -61,6 +62,7 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun initializeViews() {
+        openTerminalButton = findViewById(R.id.openTerminalButton)
         pythonStatusBadge = findViewById(R.id.pythonStatusBadge)
         geminiStatusBadge = findViewById(R.id.geminiStatusBadge)
         claudeStatusBadge = findViewById(R.id.claudeStatusBadge)
@@ -79,6 +81,10 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun setupListeners() {
+        openTerminalButton.setOnClickListener {
+            startActivity(Intent(this, TerminalActivity::class.java))
+        }
+
         installPythonButton.setOnClickListener {
             installPython()
         }
