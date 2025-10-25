@@ -60,67 +60,17 @@ class BuiltInInstaller(private val context: Context) {
         try {
             _installProgress.value = InstallProgress.Installing("Installing Python...")
 
-            // Check CPU architecture
-            val arch = System.getProperty("os.arch") ?: "aarch64"
-            val pythonUrl = if (arch.contains("aarch64") || arch.contains("arm64")) {
-                PYTHON_ARM64_URL
-            } else {
-                PYTHON_ARM_URL
-            }
+            // For now, use pip from Termux if available, or show instructions
+            // Python installation from tarball requires busybox which we don't have
 
-            Log.d(TAG, "Installing Python for architecture: $arch")
+            _installProgress.value = InstallProgress.Failed("Python installation requires manual setup")
 
-            val pythonDir = File(context.filesDir, "python")
-            pythonDir.mkdirs()
-
-            // Download Python tarball
-            _installProgress.value = InstallProgress.Installing("Downloading Python...")
-
-            val downloadResult = terminal.execute("""
-                cd ${context.filesDir.absolutePath} && \
-                wget -O python.tar.xz $pythonUrl
-            """.trimIndent())
-
-            if (!downloadResult.success) {
-                return@withContext Result.failure(Exception("Failed to download Python: ${downloadResult.output}"))
-            }
-
-            // Extract Python
-            _installProgress.value = InstallProgress.Installing("Extracting Python...")
-
-            val extractResult = terminal.execute("""
-                cd ${context.filesDir.absolutePath} && \
-                tar -xf python.tar.xz && \
-                rm python.tar.xz
-            """.trimIndent())
-
-            if (!extractResult.success) {
-                return@withContext Result.failure(Exception("Failed to extract Python: ${extractResult.output}"))
-            }
-
-            // Create symlinks in bin directory
-            val dirInfo = terminal.getDirectoryInfo()
-            val pythonBin = File(pythonDir, "bin/python3")
-
-            if (pythonBin.exists()) {
-                File(dirInfo.bin, "python").delete()
-                File(dirInfo.bin, "python3").delete()
-                File(dirInfo.bin, "pip").delete()
-                File(dirInfo.bin, "pip3").delete()
-
-                // Create symlinks
-                terminal.execute("""
-                    ln -sf ${pythonBin.absolutePath} ${dirInfo.bin}/python && \
-                    ln -sf ${pythonBin.absolutePath} ${dirInfo.bin}/python3 && \
-                    ln -sf ${File(pythonDir, "bin/pip3").absolutePath} ${dirInfo.bin}/pip && \
-                    ln -sf ${File(pythonDir, "bin/pip3").absolutePath} ${dirInfo.bin}/pip3
-                """.trimIndent())
-
-                _installProgress.value = InstallProgress.Success("Python installed!")
-                Result.success("Python 3.10.4 installed successfully")
-            } else {
-                Result.failure(Exception("Python binary not found after extraction"))
-            }
+            Result.failure(Exception(
+                "Python installation not yet supported in built-in mode.\n\n" +
+                "Please install Termux and run:\n" +
+                "pkg install python\n\n" +
+                "Or wait for future updates with precompiled Python."
+            ))
 
         } catch (e: Exception) {
             Log.e(TAG, "Error installing Python: ${e.message}", e)

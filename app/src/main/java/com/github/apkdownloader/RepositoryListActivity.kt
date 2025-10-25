@@ -54,6 +54,9 @@ class RepositoryListActivity : AppCompatActivity() {
             },
             onDownloadApkClick = { apkInfo ->
                 downloadApk(apkInfo)
+            },
+            onAiBuildClick = { repository ->
+                openAiBuildActivity(repository)
             }
         )
 
@@ -103,6 +106,10 @@ class RepositoryListActivity : AppCompatActivity() {
             }
             R.id.action_ai_build -> {
                 startActivity(Intent(this, AiBuildActivity::class.java))
+                true
+            }
+            R.id.action_settings -> {
+                startActivity(Intent(this, SettingsActivity::class.java))
                 true
             }
             R.id.action_logout -> {
@@ -275,6 +282,26 @@ class RepositoryListActivity : AppCompatActivity() {
             putExtra("repoFullName", repository.fullName)
         }
         startActivity(intent)
+    }
+
+    private fun openAiBuildActivity(repository: Repository) {
+        // Save selected repository to ProjectConfig
+        val config = com.github.apkdownloader.ai.ProjectConfig(this)
+        config.setSelectedRepository(repository.owner.login, repository.name)
+
+        // Launch AI Build Activity
+        val intent = Intent(this, AiBuildActivity::class.java).apply {
+            putExtra("owner", repository.owner.login)
+            putExtra("repo", repository.name)
+            putExtra("repoFullName", repository.fullName)
+        }
+        startActivity(intent)
+
+        Toast.makeText(
+            this,
+            "Selected ${repository.fullName} for AI Build",
+            Toast.LENGTH_SHORT
+        ).show()
     }
 
     private fun showCreateRepositoryDialog() {

@@ -91,7 +91,21 @@
                 android:text="Releases"
                 android:textColor="@color/white"
                 android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp"
                 app:backgroundTint="@color/teal_700"
+                style="@style/Widget.MaterialComponents.Button" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/aiBuildButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="AI Build"
+                android:textColor="@color/white"
+                android:layout_marginStart="4dp"
+                app:icon="@android:drawable/ic_menu_compass"
+                app:iconGravity="start"
+                app:backgroundTint="#FF9800"
                 style="@style/Widget.MaterialComponents.Button" />
 
         </LinearLayout>

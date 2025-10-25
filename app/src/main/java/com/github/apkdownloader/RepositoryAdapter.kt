@@ -13,7 +13,8 @@ import androidx.recyclerview.widget.RecyclerView
 class RepositoryAdapter(
     private val onBrowseFilesClick: (Repository) -> Unit,
     private val onViewReleasesClick: (Repository) -> Unit,
-    private val onDownloadApkClick: (ApkInfo) -> Unit
+    private val onDownloadApkClick: (ApkInfo) -> Unit,
+    private val onAiBuildClick: (Repository) -> Unit
 ) : ListAdapter<RepositoryWithApk, RepositoryAdapter.RepositoryViewHolder>(RepositoryDiffCallback()) {
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RepositoryViewHolder {
@@ -23,7 +24,7 @@ class RepositoryAdapter(
     }
 
     override fun onBindViewHolder(holder: RepositoryViewHolder, position: Int) {
-        holder.bind(getItem(position), onBrowseFilesClick, onViewReleasesClick, onDownloadApkClick)
+        holder.bind(getItem(position), onBrowseFilesClick, onViewReleasesClick, onDownloadApkClick, onAiBuildClick)
     }
 
     class RepositoryViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
@@ -32,6 +33,7 @@ class RepositoryAdapter(
         private val languageTextView: TextView = itemView.findViewById(R.id.repoLanguage)
         private val browseFilesButton: Button = itemView.findViewById(R.id.browseFilesButton)
         private val viewReleasesButton: Button = itemView.findViewById(R.id.viewReleasesButton)
+        private val aiBuildButton: Button = itemView.findViewById(R.id.aiBuildButton)
         private val apkInfoLayout: LinearLayout = itemView.findViewById(R.id.apkInfoLayout)
         private val apkListContainer: LinearLayout = itemView.findViewById(R.id.apkListContainer)
 
@@ -39,7 +41,8 @@ class RepositoryAdapter(
             repoWithApk: RepositoryWithApk,
             onBrowseFilesClick: (Repository) -> Unit,
             onViewReleasesClick: (Repository) -> Unit,
-            onDownloadApkClick: (ApkInfo) -> Unit
+            onDownloadApkClick: (ApkInfo) -> Unit,
+            onAiBuildClick: (Repository) -> Unit
         ) {
             val repository = repoWithApk.repository
 
@@ -73,6 +76,10 @@ class RepositoryAdapter(
 
             viewReleasesButton.setOnClickListener {
                 onViewReleasesClick(repository)
+            }
+
+            aiBuildButton.setOnClickListener {
+                onAiBuildClick(repository)
             }
         }
 
