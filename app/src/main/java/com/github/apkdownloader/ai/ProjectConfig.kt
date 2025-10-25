@@ -18,6 +18,9 @@ class ProjectConfig(context: Context) {
     companion object {
         private const val KEY_PROJECT_PATH = "project_path"
         private const val KEY_DEFAULT_BRANCH = "default_branch"
+        private const val KEY_SELECTED_REPO = "selected_repo"
+        private const val KEY_SELECTED_REPO_OWNER = "selected_repo_owner"
+        private const val KEY_SELECTED_REPO_NAME = "selected_repo_name"
         private const val KEY_USE_GEMINI_FIRST = "use_gemini_first"
         private const val KEY_FALLBACK_TO_CLAUDE = "fallback_to_claude"
         private const val KEY_AUTO_INSTALL = "auto_install"
@@ -64,6 +67,51 @@ class ProjectConfig(context: Context) {
      */
     fun setDefaultBranch(branch: String) {
         prefs.edit().putString(KEY_DEFAULT_BRANCH, branch).apply()
+    }
+
+    /**
+     * Get selected repository (full name like "owner/repo")
+     */
+    fun getSelectedRepository(): String? {
+        return prefs.getString(KEY_SELECTED_REPO, null)
+    }
+
+    /**
+     * Get selected repository owner
+     */
+    fun getSelectedRepositoryOwner(): String? {
+        return prefs.getString(KEY_SELECTED_REPO_OWNER, null)
+    }
+
+    /**
+     * Get selected repository name
+     */
+    fun getSelectedRepositoryName(): String? {
+        return prefs.getString(KEY_SELECTED_REPO_NAME, null)
+    }
+
+    /**
+     * Set selected repository
+     */
+    fun setSelectedRepository(owner: String, name: String) {
+        prefs.edit().apply {
+            putString(KEY_SELECTED_REPO, "$owner/$name")
+            putString(KEY_SELECTED_REPO_OWNER, owner)
+            putString(KEY_SELECTED_REPO_NAME, name)
+            apply()
+        }
+    }
+
+    /**
+     * Clear selected repository
+     */
+    fun clearSelectedRepository() {
+        prefs.edit().apply {
+            remove(KEY_SELECTED_REPO)
+            remove(KEY_SELECTED_REPO_OWNER)
+            remove(KEY_SELECTED_REPO_NAME)
+            apply()
+        }
     }
 
     /**

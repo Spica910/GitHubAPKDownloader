@@ -26,6 +26,8 @@ class AiBuildActivity : AppCompatActivity() {
     // UI components
     private lateinit var projectPathText: TextView
     private lateinit var changeProjectButton: MaterialButton
+    private lateinit var repositorySpinner: Spinner
+    private lateinit var selectRepositoryButton: MaterialButton
     private lateinit var branchSpinner: Spinner
     private lateinit var geminiStatusText: TextView
     private lateinit var claudeStatusText: TextView
@@ -40,6 +42,7 @@ class AiBuildActivity : AppCompatActivity() {
     private lateinit var viewLogsButton: MaterialButton
 
     private var currentBuildLog: String = ""
+    private var userRepositories: List<Repository> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -70,6 +73,8 @@ class AiBuildActivity : AppCompatActivity() {
     private fun initializeViews() {
         projectPathText = findViewById(R.id.projectPathText)
         changeProjectButton = findViewById(R.id.changeProjectButton)
+        repositorySpinner = findViewById(R.id.repositorySpinner)
+        selectRepositoryButton = findViewById(R.id.selectRepositoryButton)
         branchSpinner = findViewById(R.id.branchSpinner)
         geminiStatusText = findViewById(R.id.geminiStatusText)
         claudeStatusText = findViewById(R.id.claudeStatusText)
@@ -87,6 +92,23 @@ class AiBuildActivity : AppCompatActivity() {
     private fun setupListeners() {
         changeProjectButton.setOnClickListener {
             showProjectLocationDialog()
+        }
+
+        selectRepositoryButton.setOnClickListener {
+            loadUserRepositories()
+        }
+
+        repositorySpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                if (userRepositories.isNotEmpty() && position < userRepositories.size) {
+                    val selectedRepo = userRepositories[position]
+                    projectConfig.setSelectedRepository(selectedRepo.owner.login, selectedRepo.name)
+                    // Reload branches for this repository
+                    loadBranches()
+                }
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
 
         setupCliButton.setOnClickListener {
@@ -371,6 +393,74 @@ class AiBuildActivity : AppCompatActivity() {
                 "Error installing APK: ${e.message}",
                 Toast.LENGTH_SHORT
             ).show()
+        }
+    }
+
+    private fun loadUserRepositories() {
+        lifecycleScope.launch {
+            try {
+                // Get authenticated user's repositories
+                val prefs = getSharedPreferences("github_auth", MODE_PRIVATE)
+                val token = prefs.getString("access_token", null)
+
+                if (token.isNullOrEmpty()) {
+                    Toast.makeText(
+                        this@AiBuildActivity,
+                        "Please login to GitHub first",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    return@launch
+                }
+
+                // Fetch repositories from GitHub API
+                val response = RetrofitClient.gitHubApiService.getUserRepositories(
+                    "Bearer $token",
+                    perPage = 100
+                )
+
+                if (response.isSuccessful && response.body() != null) {
+                    userRepositories = response.body()!!
+
+                    // Create adapter for spinner
+                    val repoNames = userRepositories.map { it.fullName }
+                    val adapter = ArrayAdapter(
+                        this@AiBuildActivity,
+                        android.R.layout.simple_spinner_item,
+                        repoNames
+                    )
+                    adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+                    repositorySpinner.adapter = adapter
+
+                    // Select previously selected repository if any
+                    val selectedRepo = projectConfig.getSelectedRepository()
+                    if (selectedRepo != null) {
+                        val index = repoNames.indexOf(selectedRepo)
+                        if (index >= 0) {
+                            repositorySpinner.setSelection(index)
+                        }
+                    }
+
+                    Toast.makeText(
+                        this@AiBuildActivity,
+                        "Loaded ${userRepositories.size} repositories",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                } else {
+                    Toast.makeText(
+                        this@AiBuildActivity,
+                        "Failed to load repositories",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+
+            } catch (e: Exception) {
+                android.util.Log.e("AiBuild", "Error loading repositories: ${e.message}", e)
+                Toast.makeText(
+                    this@AiBuildActivity,
+                    "Error: ${e.message}",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
         }
     }
 }
