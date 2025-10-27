@@ -1,5 +1,6 @@
 package com.github.apkdownloader.ai
 
+import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -10,7 +11,12 @@ import java.io.InputStreamReader
 /**
  * Wrapper for Claude CLI integration (Paid, smarter)
  */
-class ClaudeCliWrapper(private val projectPath: String) {
+class ClaudeCliWrapper(
+    private val context: Context,
+    private val projectPath: String
+) {
+
+    private val appTerminal = AppTerminal(context)
 
     companion object {
         private const val TAG = "ClaudeCli"
@@ -22,11 +28,27 @@ class ClaudeCliWrapper(private val projectPath: String) {
      */
     suspend fun isAvailable(): Boolean = withContext(Dispatchers.IO) {
         try {
-            val process = ProcessBuilder(CLAUDE_CLI_COMMAND, "--version").start()
-            val exitCode = process.waitFor()
-            exitCode == 0
+            // Check common locations for claude binary
+            val termuxClaudePath = "/data/data/com.termux/files/usr/bin/claude"
+
+            // Check if file exists
+            val claudeFile = File(termuxClaudePath)
+            if (!claudeFile.exists()) {
+                Log.d(TAG, "❌ Claude CLI not found at $termuxClaudePath")
+                return@withContext false
+            }
+
+            // Verify it works by checking version
+            val result = appTerminal.execute("$termuxClaudePath --version")
+            if (result.success) {
+                Log.d(TAG, "✅ Claude CLI found: ${result.output.trim()}")
+                return@withContext true
+            } else {
+                Log.w(TAG, "⚠️ Claude CLI exists but version check failed: ${result.output}")
+                return@withContext false
+            }
         } catch (e: Exception) {
-            Log.e(TAG, "Claude CLI not available: ${e.message}")
+            Log.e(TAG, "Claude CLI check error: ${e.message}", e)
             false
         }
     }
@@ -49,31 +71,22 @@ class ClaudeCliWrapper(private val projectPath: String) {
             val prompt = buildPrompt(request)
             Log.d(TAG, "Sending request to Claude...")
 
-            // Use Claude with project context
-            val process = ProcessBuilder(
-                CLAUDE_CLI_COMMAND,
-                "--no-tty",
-                "-p", prompt
-            )
-                .directory(File(projectPath))
-                .redirectErrorStream(true)
-                .start()
+            // Use Claude with project context (use full path)
+            val claudePath = "/data/data/com.termux/files/usr/bin/claude"
+            val command = "$claudePath --no-tty -p \"${prompt.replace("\"", "\\\"")}\""
+            val result = appTerminal.execute(command, File(projectPath))
 
-            val output = BufferedReader(InputStreamReader(process.inputStream)).use { reader ->
-                reader.readText()
-            }
-
-            val exitCode = process.waitFor()
-
-            if (exitCode != 0) {
+            if (!result.success) {
                 return@withContext FixResult(
                     success = false,
                     aiUsed = "Claude",
                     changesApplied = false,
                     description = "Claude CLI failed",
-                    error = output
+                    error = result.output
                 )
             }
+
+            val output = result.output
 
             // Parse Claude's response
             parseResponse(output)
@@ -210,16 +223,11 @@ class ClaudeCliWrapper(private val projectPath: String) {
                 Use the Edit or Write tool to make the necessary changes.
             """.trimIndent()
 
-            val process = ProcessBuilder(
-                CLAUDE_CLI_COMMAND,
-                "--no-tty",
-                "-p", prompt
-            )
-                .directory(File(projectPath))
-                .start()
+            val claudePath = "/data/data/com.termux/files/usr/bin/claude"
+            val command = "$claudePath --no-tty -p \"${prompt.replace("\"", "\\\"")}\""
+            val result = appTerminal.execute(command, File(projectPath))
 
-            val exitCode = process.waitFor()
-            exitCode == 0
+            result.success
 
         } catch (e: Exception) {
             Log.e(TAG, "Error applying fix: ${e.message}")

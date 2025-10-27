@@ -15,8 +15,8 @@ class AiBuildHelper(
     private val projectPath: String
 ) {
 
-    private val geminiCli = GeminiCliWrapper()
-    private val claudeCli = ClaudeCliWrapper(projectPath)
+    private val geminiCli = GeminiCliWrapper(context)
+    private val claudeCli = ClaudeCliWrapper(context, projectPath)
 
     companion object {
         private const val TAG = "AiBuildHelper"

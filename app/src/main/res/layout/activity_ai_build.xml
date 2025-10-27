@@ -176,7 +176,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="🤖 AI Strategy"
+                        android:text="🤖 AI Auto-Fix (Optional)"
                         android:textSize="16sp"
                         android:textStyle="bold"
                         android:textColor="@color/white" />
@@ -188,6 +188,15 @@
                         android:text="1️⃣ Gemini (Free) → 2️⃣ Claude (Paid)"
                         android:textSize="14sp"
                         android:textColor="#4CAF50" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="⚠️ AI CLI not available? Build still works!\nOnly needed for auto-fixing build errors."
+                        android:textSize="11sp"
+                        android:textColor="#FFC107"
+                        android:lineSpacingExtra="2dp" />
 
                     <LinearLayout
                         android:layout_width="match_parent"
@@ -305,13 +314,49 @@
 
             </com.google.android.material.card.MaterialCardView>
 
+            <!-- Action Buttons -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="8dp"
+                android:weightSum="2">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/syncRepositoryButton"
+                    android:layout_width="0dp"
+                    android:layout_height="56dp"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="4dp"
+                    android:text="📥 Sync\nRepository"
+                    android:textSize="14sp"
+                    android:textColor="@color/white"
+                    app:backgroundTint="#2196F3"
+                    app:cornerRadius="8dp"
+                    style="@style/Widget.MaterialComponents.Button" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/buildApkButton"
+                    android:layout_width="0dp"
+                    android:layout_height="56dp"
+                    android:layout_weight="1"
+                    android:layout_marginStart="4dp"
+                    android:text="🔨 Build\nAPK"
+                    android:textSize="14sp"
+                    android:textColor="@color/white"
+                    app:backgroundTint="#FF9800"
+                    app:cornerRadius="8dp"
+                    style="@style/Widget.MaterialComponents.Button" />
+
+            </LinearLayout>
+
             <!-- Smart Build Button -->
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/smartBuildButton"
                 android:layout_width="match_parent"
                 android:layout_height="64dp"
-                android:text="🚀 Smart Build &amp; Test"
-                android:textSize="18sp"
+                android:text="🚀 Smart Build &amp; Test\n(Sync + Build + Install)"
+                android:textSize="16sp"
                 android:textStyle="bold"
                 android:textColor="@color/white"
                 app:backgroundTint="@color/github_green"

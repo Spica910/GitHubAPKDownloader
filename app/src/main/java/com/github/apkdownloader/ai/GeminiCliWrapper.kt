@@ -1,15 +1,21 @@
 package com.github.apkdownloader.ai
 
+import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
+import java.io.File
 import java.io.InputStreamReader
 
 /**
  * Wrapper for Gemini CLI integration (Free tier)
+ * Note: Gemini CLI doesn't exist as a standalone tool.
+ * This is a placeholder for future Python-based integration.
  */
-class GeminiCliWrapper {
+class GeminiCliWrapper(context: Context) {
+
+    private val appTerminal = AppTerminal(context)
 
     companion object {
         private const val TAG = "GeminiCli"
@@ -18,14 +24,23 @@ class GeminiCliWrapper {
 
     /**
      * Check if Gemini CLI is installed
+     * Currently returns false as gemini-cli doesn't exist as standalone tool
      */
     suspend fun isAvailable(): Boolean = withContext(Dispatchers.IO) {
         try {
-            val process = ProcessBuilder("which", GEMINI_CLI_COMMAND).start()
-            val exitCode = process.waitFor()
-            exitCode == 0
+            // Check common locations for gemini-cli
+            val termuxGeminiPath = "/data/data/com.termux/files/usr/bin/gemini-cli"
+
+            val geminiFile = File(termuxGeminiPath)
+            if (geminiFile.exists()) {
+                Log.d(TAG, "✅ Gemini CLI found at $termuxGeminiPath")
+                return@withContext true
+            } else {
+                Log.d(TAG, "❌ Gemini CLI not found (this is expected - no standalone gemini-cli exists)")
+                return@withContext false
+            }
         } catch (e: Exception) {
-            Log.e(TAG, "Gemini CLI not available: ${e.message}")
+            Log.e(TAG, "Gemini CLI check error: ${e.message}")
             false
         }
     }
@@ -48,25 +63,20 @@ class GeminiCliWrapper {
             val prompt = buildPrompt(request)
             Log.d(TAG, "Sending request to Gemini...")
 
-            val process = ProcessBuilder(GEMINI_CLI_COMMAND, prompt)
-                .redirectErrorStream(true)
-                .start()
+            val command = "$GEMINI_CLI_COMMAND \"${prompt.replace("\"", "\\\"")}\""
+            val result = appTerminal.execute(command)
 
-            val output = BufferedReader(InputStreamReader(process.inputStream)).use { reader ->
-                reader.readText()
-            }
-
-            val exitCode = process.waitFor()
-
-            if (exitCode != 0) {
+            if (!result.success) {
                 return@withContext FixResult(
                     success = false,
                     aiUsed = "Gemini",
                     changesApplied = false,
                     description = "Gemini CLI failed",
-                    error = output
+                    error = result.output
                 )
             }
+
+            val output = result.output
 
             // Parse Gemini's response
             parseResponse(output)

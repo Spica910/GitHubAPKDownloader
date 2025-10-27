@@ -15,7 +15,9 @@ data class Repository(
     val description: String?,
     val language: String?,
     val owner: Owner,
-    @SerializedName("html_url") val htmlUrl: String
+    @SerializedName("html_url") val htmlUrl: String,
+    @SerializedName("clone_url") val cloneUrl: String,
+    val private: Boolean = false
 )
 
 data class Owner(

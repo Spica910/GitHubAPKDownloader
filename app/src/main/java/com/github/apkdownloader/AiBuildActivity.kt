@@ -35,6 +35,8 @@ class AiBuildActivity : AppCompatActivity() {
     private lateinit var cleanBuildCheckbox: MaterialCheckBox
     private lateinit var autoInstallCheckbox: MaterialCheckBox
     private lateinit var createPrCheckbox: MaterialCheckBox
+    private lateinit var syncRepositoryButton: MaterialButton
+    private lateinit var buildApkButton: MaterialButton
     private lateinit var smartBuildButton: MaterialButton
     private lateinit var buildStatusCard: MaterialCardView
     private lateinit var buildStatusText: TextView
@@ -97,6 +99,8 @@ class AiBuildActivity : AppCompatActivity() {
         cleanBuildCheckbox = findViewById(R.id.cleanBuildCheckbox)
         autoInstallCheckbox = findViewById(R.id.autoInstallCheckbox)
         createPrCheckbox = findViewById(R.id.createPrCheckbox)
+        syncRepositoryButton = findViewById(R.id.syncRepositoryButton)
+        buildApkButton = findViewById(R.id.buildApkButton)
         smartBuildButton = findViewById(R.id.smartBuildButton)
         buildStatusCard = findViewById(R.id.buildStatusCard)
         buildStatusText = findViewById(R.id.buildStatusText)
@@ -118,6 +122,19 @@ class AiBuildActivity : AppCompatActivity() {
                 if (userRepositories.isNotEmpty() && position < userRepositories.size) {
                     val selectedRepo = userRepositories[position]
                     projectConfig.setSelectedRepository(selectedRepo.owner.login, selectedRepo.name)
+
+                    // Update project path for this specific repository
+                    val basePath = projectConfig.getProjectPath()
+                    val repoSpecificPath = "$basePath/${selectedRepo.owner.login}/${selectedRepo.name}"
+
+                    // Reinitialize managers with repository-specific path
+                    smartBuildManager = SmartBuildManager(this@AiBuildActivity, repoSpecificPath)
+                    prCreator = PrCreator(repoSpecificPath)
+                    aiBuildHelper = AiBuildHelper(this@AiBuildActivity, repoSpecificPath)
+
+                    android.util.Log.d("AiBuild", "Repository changed: ${selectedRepo.fullName}")
+                    android.util.Log.d("AiBuild", "Project path: $repoSpecificPath")
+
                     // Reload branches for this repository
                     loadBranches()
                 }
@@ -128,6 +145,14 @@ class AiBuildActivity : AppCompatActivity() {
 
         setupCliButton.setOnClickListener {
             startActivity(Intent(this, CliSetupActivity::class.java))
+        }
+
+        syncRepositoryButton.setOnClickListener {
+            syncRepositoryOnly()
+        }
+
+        buildApkButton.setOnClickListener {
+            buildApkOnly()
         }
 
         smartBuildButton.setOnClickListener {
@@ -174,24 +199,103 @@ class AiBuildActivity : AppCompatActivity() {
     private fun loadBranches() {
         lifecycleScope.launch {
             try {
-                val branches = listOf("master", "main", "develop") // TODO: Get from git
-                val adapter = ArrayAdapter(
+                // Get selected repository info
+                val owner = projectConfig.getSelectedRepositoryOwner()
+                val repo = projectConfig.getSelectedRepositoryName()
+                val token = GitHubAuthHelper.getToken(this@AiBuildActivity)
+
+                if (owner == null || repo == null || token == null) {
+                    // No repository selected, use defaults
+                    android.util.Log.d("AiBuild", "No repo selected, using default branches")
+                    val defaultBranches = listOf("master", "main", "develop")
+                    val adapter = ArrayAdapter(
+                        this@AiBuildActivity,
+                        R.layout.spinner_item_white,
+                        defaultBranches
+                    )
+                    adapter.setDropDownViewResource(R.layout.spinner_dropdown_item_white)
+                    branchSpinner.adapter = adapter
+                    return@launch
+                }
+
+                android.util.Log.d("AiBuild", "Loading branches for $owner/$repo")
+
+                // Show loading
+                val loadingAdapter = ArrayAdapter(
                     this@AiBuildActivity,
                     R.layout.spinner_item_white,
-                    branches
+                    listOf("⏳ 브랜치 로딩 중...")
                 )
-                adapter.setDropDownViewResource(R.layout.spinner_dropdown_item_white)
-                branchSpinner.adapter = adapter
+                loadingAdapter.setDropDownViewResource(R.layout.spinner_dropdown_item_white)
+                branchSpinner.adapter = loadingAdapter
+                branchSpinner.isEnabled = false
 
-                // Select default branch
-                val defaultBranch = projectConfig.getDefaultBranch()
-                val index = branches.indexOf(defaultBranch)
-                if (index >= 0) {
-                    branchSpinner.setSelection(index)
+                // Fetch branches from GitHub API
+                val response = RetrofitClient.gitHubApiService.getRepositoryBranches(
+                    "Bearer $token",
+                    owner,
+                    repo
+                )
+
+                if (response.isSuccessful && response.body() != null) {
+                    val branches = response.body()!!.map { it.name }
+
+                    android.util.Log.d("AiBuild", "Loaded ${branches.size} branches: $branches")
+
+                    if (branches.isEmpty()) {
+                        // Fallback to defaults
+                        val defaultBranches = listOf("master", "main")
+                        val adapter = ArrayAdapter(
+                            this@AiBuildActivity,
+                            R.layout.spinner_item_white,
+                            defaultBranches
+                        )
+                        adapter.setDropDownViewResource(R.layout.spinner_dropdown_item_white)
+                        branchSpinner.adapter = adapter
+                        branchSpinner.isEnabled = true
+                    } else {
+                        val adapter = ArrayAdapter(
+                            this@AiBuildActivity,
+                            R.layout.spinner_item_white,
+                            branches
+                        )
+                        adapter.setDropDownViewResource(R.layout.spinner_dropdown_item_white)
+                        branchSpinner.adapter = adapter
+                        branchSpinner.isEnabled = true
+
+                        // Auto-select main or master
+                        val defaultBranch = branches.firstOrNull { it == "main" || it == "master" }
+                        if (defaultBranch != null) {
+                            val index = branches.indexOf(defaultBranch)
+                            branchSpinner.setSelection(index)
+                        }
+                    }
+                } else {
+                    android.util.Log.e("AiBuild", "Failed to load branches: ${response.code()}")
+                    // Fallback to defaults
+                    val defaultBranches = listOf("master", "main", "develop")
+                    val adapter = ArrayAdapter(
+                        this@AiBuildActivity,
+                        R.layout.spinner_item_white,
+                        defaultBranches
+                    )
+                    adapter.setDropDownViewResource(R.layout.spinner_dropdown_item_white)
+                    branchSpinner.adapter = adapter
+                    branchSpinner.isEnabled = true
                 }
 
             } catch (e: Exception) {
-                android.util.Log.e("AiBuild", "Error loading branches: ${e.message}")
+                android.util.Log.e("AiBuild", "Error loading branches: ${e.message}", e)
+                // Fallback to defaults
+                val defaultBranches = listOf("master", "main", "develop")
+                val adapter = ArrayAdapter(
+                    this@AiBuildActivity,
+                    R.layout.spinner_item_white,
+                    defaultBranches
+                )
+                adapter.setDropDownViewResource(R.layout.spinner_dropdown_item_white)
+                branchSpinner.adapter = adapter
+                branchSpinner.isEnabled = true
             }
         }
     }
@@ -226,6 +330,40 @@ class AiBuildActivity : AppCompatActivity() {
     private fun startSmartBuild() {
         lifecycleScope.launch {
             try {
+                // Validate repository selection
+                val selectedIndex = repositorySpinner.selectedItemPosition
+                if (selectedIndex < 0 || selectedIndex >= userRepositories.size) {
+                    Toast.makeText(
+                        this@AiBuildActivity,
+                        "❌ 리포지토리를 먼저 선택하세요",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    return@launch
+                }
+
+                // Get selected repository
+                val selectedRepo = userRepositories[selectedIndex]
+                val repoUrl = if (selectedRepo.private) {
+                    // Private repo - use token authentication
+                    val token = GitHubAuthHelper.getToken(this@AiBuildActivity)
+                    if (token.isNullOrEmpty()) {
+                        Toast.makeText(
+                            this@AiBuildActivity,
+                            "❌ Private 리포지토리는 GitHub 로그인이 필요합니다",
+                            Toast.LENGTH_LONG
+                        ).show()
+                        return@launch
+                    }
+                    // Insert token into clone URL
+                    selectedRepo.cloneUrl.replace("https://", "https://$token@")
+                } else {
+                    // Public repo - use regular clone URL
+                    selectedRepo.cloneUrl
+                }
+
+                android.util.Log.d("AiBuild", "Starting build for: ${selectedRepo.fullName}")
+                android.util.Log.d("AiBuild", "Clone URL: ${if (selectedRepo.private) "[REDACTED]" else repoUrl}")
+
                 // Disable button
                 smartBuildButton.isEnabled = false
                 smartBuildButton.text = "Building..."
@@ -250,8 +388,8 @@ class AiBuildActivity : AppCompatActivity() {
                 // Save config
                 projectConfig.saveAiBuildConfig(config)
 
-                // Start smart build
-                val result = smartBuildManager.smartBuild(branch, config)
+                // Start smart build with repository URL
+                val result = smartBuildManager.smartBuild(repoUrl, branch, config)
 
                 // Handle result
                 if (result.success) {
@@ -275,6 +413,123 @@ class AiBuildActivity : AppCompatActivity() {
         }
     }
 
+    private fun syncRepositoryOnly() {
+        lifecycleScope.launch {
+            try {
+                // Validate repository selection
+                val selectedIndex = repositorySpinner.selectedItemPosition
+                if (selectedIndex < 0 || selectedIndex >= userRepositories.size) {
+                    Toast.makeText(
+                        this@AiBuildActivity,
+                        "❌ 리포지토리를 먼저 선택하세요",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    return@launch
+                }
+
+                // Get selected repository
+                val selectedRepo = userRepositories[selectedIndex]
+                val repoUrl = if (selectedRepo.private) {
+                    val token = GitHubAuthHelper.getToken(this@AiBuildActivity)
+                    if (token.isNullOrEmpty()) {
+                        Toast.makeText(
+                            this@AiBuildActivity,
+                            "❌ Private 리포지토리는 GitHub 로그인이 필요합니다",
+                            Toast.LENGTH_LONG
+                        ).show()
+                        return@launch
+                    }
+                    selectedRepo.cloneUrl.replace("https://", "https://$token@")
+                } else {
+                    selectedRepo.cloneUrl
+                }
+
+                android.util.Log.d("AiBuild", "Syncing: ${selectedRepo.fullName}")
+
+                // Disable button
+                syncRepositoryButton.isEnabled = false
+                syncRepositoryButton.text = "Syncing..."
+
+                // Show status card
+                buildStatusCard.visibility = View.VISIBLE
+                currentBuildLog = ""
+
+                // Get selected branch
+                val branch = branchSpinner.selectedItem?.toString() ?: "master"
+
+                // Sync repository only
+                val result = smartBuildManager.syncRepositoryOnly(repoUrl, branch)
+
+                // Handle result
+                if (result.success) {
+                    Toast.makeText(
+                        this@AiBuildActivity,
+                        "✅ Repository synced successfully!\nReady to build.",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                } else {
+                    showErrorDialog(result.errorLog ?: "Sync failed")
+                }
+
+            } catch (e: Exception) {
+                android.util.Log.e("AiBuild", "Sync error: ${e.message}", e)
+                showErrorDialog(e.message ?: "Unknown error")
+            } finally {
+                syncRepositoryButton.isEnabled = true
+                syncRepositoryButton.text = "📥 Sync\nRepository"
+            }
+        }
+    }
+
+    private fun buildApkOnly() {
+        lifecycleScope.launch {
+            try {
+                // Disable button
+                buildApkButton.isEnabled = false
+                buildApkButton.text = "Building..."
+
+                // Show status card
+                buildStatusCard.visibility = View.VISIBLE
+                currentBuildLog = ""
+
+                // Create config from checkboxes
+                val config = AiBuildConfig(
+                    useGeminiFirst = true,
+                    fallbackToClaude = true,
+                    maxRetries = 3,
+                    autoInstall = autoInstallCheckbox.isChecked,
+                    createPrOnFix = createPrCheckbox.isChecked,
+                    cleanBuild = cleanBuildCheckbox.isChecked
+                )
+
+                // Save config
+                projectConfig.saveAiBuildConfig(config)
+
+                // Build only (no sync)
+                val result = smartBuildManager.buildOnly(config)
+
+                // Handle result
+                if (result.success) {
+                    showSuccessDialog(result)
+
+                    // Install APK if auto-install is enabled
+                    if (config.autoInstall && result.apkPath != null) {
+                        installApk(result.apkPath)
+                    }
+                } else {
+                    showErrorDialog(result.errorLog ?: "Build failed")
+                }
+
+            } catch (e: Exception) {
+                android.util.Log.e("AiBuild", "Build error: ${e.message}", e)
+                showErrorDialog(e.message ?: "Unknown error")
+            } finally {
+                buildApkButton.isEnabled = true
+                buildApkButton.text = "🔨 Build\nAPK"
+            }
+        }
+    }
+
     private fun updateBuildStatus(status: BuildStatus) {
         buildStatusCard.visibility = View.VISIBLE
 
@@ -284,12 +539,12 @@ class AiBuildActivity : AppCompatActivity() {
                 buildProgressBar.visibility = View.GONE
             }
             is BuildStatus.Syncing -> {
-                buildStatusText.text = "🔄 Syncing from GitHub..."
+                buildStatusText.text = "📥 Syncing from GitHub...\n(Clone or Pull)"
                 buildProgressBar.visibility = View.VISIBLE
                 currentBuildLog += "\n[${System.currentTimeMillis()}] Syncing from GitHub..."
             }
             is BuildStatus.Building -> {
-                buildStatusText.text = "🔨 Building APK..."
+                buildStatusText.text = "🔨 Building APK...\n(Compiling code)"
                 buildProgressBar.visibility = View.VISIBLE
                 currentBuildLog += "\n[${System.currentTimeMillis()}] Building APK..."
             }
@@ -304,14 +559,26 @@ class AiBuildActivity : AppCompatActivity() {
                 currentBuildLog += "\n[${System.currentTimeMillis()}] Creating PR..."
             }
             is BuildStatus.Success -> {
-                buildStatusText.text = "✅ Build successful! (${status.buildTime}ms)"
+                val message = if (status.buildTime > 0) {
+                    "✅ Build successful!\n(${status.buildTime}ms)"
+                } else {
+                    "✅ Sync successful!\n(Repository ready)"
+                }
+                buildStatusText.text = message
                 buildProgressBar.visibility = View.GONE
-                currentBuildLog += "\n[${System.currentTimeMillis()}] Build successful!"
+                currentBuildLog += "\n[${System.currentTimeMillis()}] Success!"
             }
             is BuildStatus.Failed -> {
-                buildStatusText.text = "❌ Build failed: ${status.error}"
+                val message = if (status.error.contains("clone", ignoreCase = true) ||
+                                 status.error.contains("sync", ignoreCase = true) ||
+                                 status.error.contains("git", ignoreCase = true)) {
+                    "❌ Sync failed\n${status.error}"
+                } else {
+                    "❌ Build failed\n${status.error}"
+                }
+                buildStatusText.text = message
                 buildProgressBar.visibility = View.GONE
-                currentBuildLog += "\n[${System.currentTimeMillis()}] Build failed: ${status.error}"
+                currentBuildLog += "\n[${System.currentTimeMillis()}] Failed: ${status.error}"
             }
         }
     }

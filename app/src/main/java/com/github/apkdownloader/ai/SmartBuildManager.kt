@@ -19,6 +19,7 @@ class SmartBuildManager(
 ) {
 
     private val aiBuildHelper = AiBuildHelper(context, projectPath)
+    private val appTerminal = AppTerminal(context)
     private val _buildStatus = MutableStateFlow<BuildStatus>(BuildStatus.Idle)
     val buildStatus: StateFlow<BuildStatus> = _buildStatus
 
@@ -28,9 +29,150 @@ class SmartBuildManager(
     }
 
     /**
+     * Sync repository only (clone or pull)
+     */
+    suspend fun syncRepositoryOnly(
+        repoUrl: String,
+        branch: String = DEFAULT_BRANCH
+    ): BuildResult = withContext(Dispatchers.IO) {
+        try {
+            _buildStatus.value = BuildStatus.Syncing
+            Log.d(TAG, "📥 Syncing repository only...")
+
+            val syncResult = syncRepository(repoUrl, branch)
+
+            _buildStatus.value = if (syncResult) {
+                BuildStatus.Success("", 0)
+            } else {
+                BuildStatus.Failed("Failed to sync repository")
+            }
+
+            BuildResult(
+                success = syncResult,
+                errorLog = if (syncResult) null else "Failed to clone/sync repository from GitHub"
+            )
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error during sync: ${e.message}", e)
+            _buildStatus.value = BuildStatus.Failed(e.message ?: "Unknown error")
+            BuildResult(
+                success = false,
+                errorLog = e.toString()
+            )
+        }
+    }
+
+    /**
+     * Build only (no sync)
+     */
+    suspend fun buildOnly(
+        config: AiBuildConfig = AiBuildConfig()
+    ): BuildResult = withContext(Dispatchers.IO) {
+        val startTime = System.currentTimeMillis()
+        var fixAttempts = 0
+        val previousFixes = mutableListOf<String>()
+
+        try {
+            // Check if project exists
+            val projectDir = File(projectPath)
+            if (!projectDir.exists() || !File(projectDir, ".git").exists()) {
+                return@withContext BuildResult(
+                    success = false,
+                    errorLog = "Repository not found. Please sync repository first."
+                )
+            }
+
+            // Clean build if requested
+            if (config.cleanBuild) {
+                Log.d(TAG, "🧹 Cleaning build cache...")
+                cleanBuild()
+            }
+
+            // Attempt build (with AI auto-fix loop)
+            var buildResult = BuildResult(success = false)
+
+            while (!buildResult.success && fixAttempts < config.maxRetries) {
+                _buildStatus.value = BuildStatus.Building
+                Log.d(TAG, "🔨 Building APK (attempt ${fixAttempts + 1})...")
+
+                buildResult = executeGradleBuild()
+
+                if (buildResult.success) {
+                    Log.d(TAG, "✅ Build successful!")
+                    break
+                }
+
+                // Build failed - check if AI is enabled
+                if (!config.useGeminiFirst && !config.fallbackToClaude) {
+                    Log.d(TAG, "❌ Build failed. AI fix disabled.")
+                    break
+                }
+
+                // Build failed - try AI fix
+                Log.d(TAG, "❌ Build failed. Asking AI for help...")
+
+                fixAttempts++
+                val aiTier = if (fixAttempts == 1) AiTier.GEMINI else AiTier.CLAUDE
+                _buildStatus.value = BuildStatus.AiFixing(aiTier, fixAttempts)
+
+                // Check if AI is available
+                val (geminiAvailable, claudeAvailable) = aiBuildHelper.checkAvailability()
+                if (!geminiAvailable && !claudeAvailable) {
+                    Log.w(TAG, "⚠️ No AI available. Build will fail without fixes.")
+                    Log.w(TAG, "💡 Tip: Install Claude CLI in Termux for auto-fix")
+                    break
+                }
+
+                val fixRequest = AiFixRequest(
+                    errorLog = buildResult.errorLog ?: "Unknown error",
+                    buildGradleContent = readBuildGradle(),
+                    previousFixes = previousFixes
+                )
+
+                val fixResult = aiBuildHelper.fixBuildError(fixRequest, config)
+
+                if (fixResult.success) {
+                    Log.d(TAG, "💡 AI suggested fix: ${fixResult.description}")
+                    previousFixes.add("${fixResult.aiUsed}: ${fixResult.description}")
+
+                    if (fixResult.changesApplied) {
+                        Log.d(TAG, "✍️ Changes applied by AI")
+                        // Continue loop to rebuild
+                    } else {
+                        Log.d(TAG, "⚠️ Manual review needed for AI suggestion")
+                        break
+                    }
+                } else {
+                    Log.e(TAG, "❌ AI couldn't fix the error")
+                    break
+                }
+            }
+
+            val buildTime = System.currentTimeMillis() - startTime
+
+            _buildStatus.value = if (buildResult.success) {
+                BuildStatus.Success(buildResult.apkPath ?: "", buildTime)
+            } else {
+                BuildStatus.Failed(buildResult.errorLog ?: "Unknown error")
+            }
+
+            buildResult.copy(buildTime = buildTime)
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error during build: ${e.message}", e)
+            _buildStatus.value = BuildStatus.Failed(e.message ?: "Unknown error")
+            BuildResult(
+                success = false,
+                errorLog = e.toString()
+            )
+        }
+    }
+
+    /**
      * Main entry point: Smart Build with AI assistance
      */
     suspend fun smartBuild(
+        repoUrl: String,
         branch: String = DEFAULT_BRANCH,
         config: AiBuildConfig = AiBuildConfig()
     ): BuildResult = withContext(Dispatchers.IO) {
@@ -40,14 +182,14 @@ class SmartBuildManager(
         val previousFixes = mutableListOf<String>()
 
         try {
-            // Step 1: Sync from GitHub
+            // Step 1: Clone or Sync from GitHub
             _buildStatus.value = BuildStatus.Syncing
-            Log.d(TAG, "📥 Syncing from GitHub...")
-            val syncResult = gitPull(branch)
+            Log.d(TAG, "📥 Syncing repository from GitHub...")
+            val syncResult = syncRepository(repoUrl, branch)
             if (!syncResult) {
                 return@withContext BuildResult(
                     success = false,
-                    errorLog = "Failed to sync from GitHub"
+                    errorLog = "Failed to clone/sync repository from GitHub"
                 )
             }
 
@@ -71,12 +213,26 @@ class SmartBuildManager(
                     break
                 }
 
+                // Build failed - check if AI is enabled
+                if (!config.useGeminiFirst && !config.fallbackToClaude) {
+                    Log.d(TAG, "❌ Build failed. AI fix disabled.")
+                    break
+                }
+
                 // Build failed - try AI fix
                 Log.d(TAG, "❌ Build failed. Asking AI for help...")
 
                 fixAttempts++
                 val aiTier = if (fixAttempts == 1) AiTier.GEMINI else AiTier.CLAUDE
                 _buildStatus.value = BuildStatus.AiFixing(aiTier, fixAttempts)
+
+                // Check if AI is available
+                val (geminiAvailable, claudeAvailable) = aiBuildHelper.checkAvailability()
+                if (!geminiAvailable && !claudeAvailable) {
+                    Log.w(TAG, "⚠️ No AI available. Build will fail without fixes.")
+                    Log.w(TAG, "💡 Tip: Install Claude CLI in Termux for auto-fix")
+                    break
+                }
 
                 val fixRequest = AiFixRequest(
                     errorLog = buildResult.errorLog ?: "Unknown error",
@@ -141,29 +297,21 @@ class SmartBuildManager(
      */
     private suspend fun executeGradleBuild(): BuildResult = withContext(Dispatchers.IO) {
         try {
-            val gradlePath = File(projectPath, "gradlew").absolutePath
-            val commands = if (File(gradlePath).exists()) {
-                arrayOf(gradlePath, "assembleDebug", "--stacktrace")
+            val gradlewFile = File(projectPath, "gradlew")
+            val command = if (gradlewFile.exists()) {
+                "cd \"$projectPath\" && ./gradlew assembleDebug --stacktrace"
             } else {
-                arrayOf("gradle", "assembleDebug", "--stacktrace")
+                "cd \"$projectPath\" && gradle assembleDebug --stacktrace"
             }
 
-            val process = ProcessBuilder(*commands)
-                .directory(File(projectPath))
-                .redirectErrorStream(true)
-                .start()
+            Log.d(TAG, "Executing: $command")
 
-            val output = StringBuilder()
-            BufferedReader(InputStreamReader(process.inputStream)).use { reader ->
-                reader.forEachLine { line ->
-                    output.appendLine(line)
-                    Log.d(TAG, line)
-                }
-            }
+            val result = appTerminal.execute(command)
+            val output = result.output
 
-            val exitCode = process.waitFor()
+            Log.d(TAG, "Build output: $output")
 
-            if (exitCode == 0) {
+            if (result.success) {
                 // Find APK
                 val apkFile = findGeneratedApk()
                 BuildResult(
@@ -172,7 +320,7 @@ class SmartBuildManager(
                 )
             } else {
                 // Extract error from output
-                val errorLog = extractError(output.toString())
+                val errorLog = extractError(output)
                 BuildResult(
                     success = false,
                     errorLog = errorLog
@@ -225,48 +373,55 @@ class SmartBuildManager(
     }
 
     /**
-     * Git pull from remote (with clone if needed)
+     * Sync repository: Clone if not exists, Pull if exists
      */
-    private suspend fun gitPull(branch: String): Boolean = withContext(Dispatchers.IO) {
+    private suspend fun syncRepository(repoUrl: String, branch: String): Boolean = withContext(Dispatchers.IO) {
         try {
             val projectDir = File(projectPath)
-
-            // Check if project directory exists and is a git repository
             val gitDir = File(projectDir, ".git")
 
             if (!gitDir.exists()) {
-                Log.d(TAG, "Repository not cloned yet. Need to clone first.")
-                // Repository not cloned - need repository URL
-                // This requires repository information from ProjectConfig
-                Log.w(TAG, "⚠️ Git clone not implemented yet. Manual setup required.")
-                return@withContext false
+                // Repository not cloned yet - clone it
+                Log.d(TAG, "📦 Repository not found. Cloning from $repoUrl...")
+                return@withContext cloneRepository(repoUrl, branch)
+            } else {
+                // Repository exists - pull updates
+                Log.d(TAG, "🔄 Repository exists. Pulling updates from branch $branch...")
+                return@withContext gitPull(branch)
             }
 
-            // Directory exists, do git pull
-            Log.d(TAG, "Running git pull origin $branch in $projectPath")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error syncing repository: ${e.message}", e)
+            false
+        }
+    }
 
-            val process = ProcessBuilder(
-                "git", "pull", "origin", branch
-            )
-                .directory(projectDir)
-                .redirectErrorStream(true)
-                .start()
+    /**
+     * Git pull from remote (force update, overwrite local changes)
+     */
+    private suspend fun gitPull(branch: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            Log.d(TAG, "Running git pull origin $branch in $projectPath (force update)")
 
-            val output = StringBuilder()
-            BufferedReader(InputStreamReader(process.inputStream)).use { reader ->
-                reader.forEachLine { line ->
-                    output.appendLine(line)
-                    Log.d(TAG, "git: $line")
-                }
-            }
+            // Add git safe.directory first
+            appTerminal.execute("git config --global --add safe.directory \"$projectPath\"")
 
-            val exitCode = process.waitFor()
+            // Force pull: fetch and reset to match remote exactly
+            // This will OVERWRITE any local changes
+            val commands = """
+                cd "$projectPath" && \
+                git fetch origin $branch && \
+                git reset --hard origin/$branch
+            """.trimIndent()
 
-            if (exitCode == 0) {
-                Log.d(TAG, "✅ Git pull successful")
+            val result = appTerminal.execute(commands)
+
+            if (result.success) {
+                Log.d(TAG, "✅ Git pull successful (force updated)")
+                Log.d(TAG, result.output)
                 true
             } else {
-                Log.e(TAG, "❌ Git pull failed: $output")
+                Log.e(TAG, "❌ Git pull failed: ${result.output}")
                 false
             }
 
@@ -277,44 +432,45 @@ class SmartBuildManager(
     }
 
     /**
-     * Clone repository from GitHub
+     * Clone repository from GitHub (clean clone, removes existing directory)
      */
-    suspend fun cloneRepository(repoUrl: String, targetBranch: String = "master"): Boolean = withContext(Dispatchers.IO) {
+    private suspend fun cloneRepository(repoUrl: String, targetBranch: String = "master"): Boolean = withContext(Dispatchers.IO) {
         try {
             val projectDir = File(projectPath)
 
-            // Check if directory already exists
-            if (projectDir.exists() && projectDir.listFiles()?.isNotEmpty() == true) {
-                Log.d(TAG, "Directory already exists, skipping clone")
-                return@withContext true
+            // If directory exists, remove it for clean clone
+            if (projectDir.exists()) {
+                Log.d(TAG, "⚠️ Directory exists, removing for clean clone...")
+                val removeResult = appTerminal.execute("rm -rf \"$projectPath\"")
+                if (!removeResult.success) {
+                    Log.w(TAG, "Failed to remove existing directory: ${removeResult.output}")
+                    // Continue anyway, git clone might handle it
+                }
             }
 
             // Create parent directory
             projectDir.parentFile?.mkdirs()
 
-            Log.d(TAG, "Cloning $repoUrl to $projectPath")
+            Log.d(TAG, "📦 Cloning $repoUrl (branch: $targetBranch) to $projectPath")
 
-            val process = ProcessBuilder(
-                "git", "clone", "-b", targetBranch, repoUrl, projectPath
+            // Use git clone command
+            val result = appTerminal.execute(
+                "git clone -b $targetBranch \"$repoUrl\" \"$projectPath\""
             )
-                .redirectErrorStream(true)
-                .start()
 
-            val output = StringBuilder()
-            BufferedReader(InputStreamReader(process.inputStream)).use { reader ->
-                reader.forEachLine { line ->
-                    output.appendLine(line)
-                    Log.d(TAG, "git: $line")
-                }
-            }
-
-            val exitCode = process.waitFor()
-
-            if (exitCode == 0) {
+            if (result.success) {
                 Log.d(TAG, "✅ Git clone successful")
+                Log.d(TAG, result.output)
+
+                // Add git safe.directory to prevent ownership errors
+                appTerminal.execute("git config --global --add safe.directory \"$projectPath\"")
+
+                // Make gradlew executable
+                makeGradlewExecutable()
+
                 true
             } else {
-                Log.e(TAG, "❌ Git clone failed: $output")
+                Log.e(TAG, "❌ Git clone failed: ${result.output}")
                 false
             }
 
@@ -325,15 +481,46 @@ class SmartBuildManager(
     }
 
     /**
+     * Make gradlew executable
+     */
+    private suspend fun makeGradlewExecutable(): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val gradlewFile = File(projectPath, "gradlew")
+            if (!gradlewFile.exists()) {
+                Log.d(TAG, "⚠️ gradlew not found, skipping chmod")
+                return@withContext false
+            }
+
+            val result = appTerminal.execute("chmod +x \"${gradlewFile.absolutePath}\"")
+
+            if (result.success) {
+                Log.d(TAG, "✅ gradlew made executable")
+                true
+            } else {
+                Log.w(TAG, "⚠️ Failed to make gradlew executable: ${result.output}")
+                false
+            }
+
+        } catch (e: Exception) {
+            Log.w(TAG, "chmod error: ${e.message}")
+            false
+        }
+    }
+
+    /**
      * Clean gradle build
      */
     private suspend fun cleanBuild(): Boolean = withContext(Dispatchers.IO) {
         try {
-            val process = ProcessBuilder("gradle", "clean")
-                .directory(File(projectPath))
-                .start()
+            val gradlewFile = File(projectPath, "gradlew")
+            val command = if (gradlewFile.exists()) {
+                "cd \"$projectPath\" && ./gradlew clean"
+            } else {
+                "cd \"$projectPath\" && gradle clean"
+            }
 
-            process.waitFor() == 0
+            val result = appTerminal.execute(command)
+            result.success
 
         } catch (e: Exception) {
             Log.e(TAG, "Clean build error: ${e.message}")
@@ -377,17 +564,13 @@ class SmartBuildManager(
      */
     suspend fun hasUncommittedChanges(): Boolean = withContext(Dispatchers.IO) {
         try {
-            val process = ProcessBuilder(
-                "git", "status", "--porcelain"
-            )
-                .directory(File(projectPath))
-                .start()
+            val result = appTerminal.execute("cd \"$projectPath\" && git status --porcelain")
 
-            val output = BufferedReader(InputStreamReader(process.inputStream)).use {
-                it.readText()
+            if (result.success) {
+                result.output.trim().isNotEmpty()
+            } else {
+                false
             }
-
-            output.trim().isNotEmpty()
 
         } catch (e: Exception) {
             false
