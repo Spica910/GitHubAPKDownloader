@@ -39,7 +39,10 @@ class SmartBuildManager(
             _buildStatus.value = BuildStatus.Syncing
             Log.d(TAG, "⬇️ Cloning repository (download new copy)...")
 
-            val cloneResult = cloneRepository(repoUrl, branch)
+            val errorLog = StringBuilder()
+            val cloneResult = cloneRepository(repoUrl, branch) { msg ->
+                errorLog.append(msg).append("\n")
+            }
 
             _buildStatus.value = if (cloneResult) {
                 BuildStatus.Success("", 0)
@@ -49,7 +52,7 @@ class SmartBuildManager(
 
             BuildResult(
                 success = cloneResult,
-                errorLog = if (cloneResult) null else "Failed to clone repository from GitHub"
+                errorLog = if (cloneResult) null else errorLog.toString().ifEmpty { "Failed to clone repository from GitHub" }
             )
 
         } catch (e: Exception) {
@@ -81,7 +84,10 @@ class SmartBuildManager(
                 )
             }
 
-            val pullResult = gitPull(branch)
+            val errorLog = StringBuilder()
+            val pullResult = gitPull(branch) { msg ->
+                errorLog.append(msg).append("\n")
+            }
 
             _buildStatus.value = if (pullResult) {
                 BuildStatus.Success("", 0)
@@ -91,7 +97,7 @@ class SmartBuildManager(
 
             BuildResult(
                 success = pullResult,
-                errorLog = if (pullResult) null else "Failed to pull updates from GitHub"
+                errorLog = if (pullResult) null else errorLog.toString().ifEmpty { "Failed to pull updates from GitHub" }
             )
 
         } catch (e: Exception) {
@@ -446,13 +452,16 @@ class SmartBuildManager(
     /**
      * Git pull from remote (force update, overwrite local changes)
      */
-    private suspend fun gitPull(branch: String): Boolean = withContext(Dispatchers.IO) {
+    private suspend fun gitPull(branch: String, errorCallback: ((String) -> Unit)? = null): Boolean = withContext(Dispatchers.IO) {
         try {
             Log.d(TAG, "Running git pull origin $branch in $projectPath (force update)")
+            errorCallback?.invoke("Executing git fetch and reset...")
 
             val projectDir = File(projectPath)
             if (!projectDir.exists()) {
-                Log.e(TAG, "Project directory does not exist: $projectPath")
+                val errorMsg = "Project directory does not exist: $projectPath"
+                Log.e(TAG, errorMsg)
+                errorCallback?.invoke(errorMsg)
                 return@withContext false
             }
 
@@ -464,23 +473,30 @@ class SmartBuildManager(
             // Use working directory instead of cd command
             val fetchResult = appTerminal.execute("git fetch origin $branch", projectDir)
             if (!fetchResult.success) {
-                Log.e(TAG, "❌ Git fetch failed: ${fetchResult.output}")
+                val errorMsg = "Git fetch failed!\nExit code: ${fetchResult.exitCode}\nOutput: ${fetchResult.output}"
+                Log.e(TAG, "❌ $errorMsg")
+                errorCallback?.invoke(errorMsg)
                 return@withContext false
             }
 
             val resetResult = appTerminal.execute("git reset --hard origin/$branch", projectDir)
             if (!resetResult.success) {
-                Log.e(TAG, "❌ Git reset failed: ${resetResult.output}")
+                val errorMsg = "Git reset failed!\nExit code: ${resetResult.exitCode}\nOutput: ${resetResult.output}"
+                Log.e(TAG, "❌ $errorMsg")
+                errorCallback?.invoke(errorMsg)
                 return@withContext false
             }
 
             Log.d(TAG, "✅ Git pull successful (force updated)")
             Log.d(TAG, "Fetch: ${fetchResult.output}")
             Log.d(TAG, "Reset: ${resetResult.output}")
+            errorCallback?.invoke("Pull successful!")
             true
 
         } catch (e: Exception) {
-            Log.e(TAG, "Git pull error: ${e.message}", e)
+            val errorMsg = "Git pull exception: ${e.message}\n${e.stackTraceToString().take(500)}"
+            Log.e(TAG, errorMsg, e)
+            errorCallback?.invoke(errorMsg)
             false
         }
     }
@@ -488,7 +504,7 @@ class SmartBuildManager(
     /**
      * Clone repository from GitHub (clean clone, removes existing directory)
      */
-    private suspend fun cloneRepository(repoUrl: String, targetBranch: String = "master"): Boolean = withContext(Dispatchers.IO) {
+    private suspend fun cloneRepository(repoUrl: String, targetBranch: String = "master", errorCallback: ((String) -> Unit)? = null): Boolean = withContext(Dispatchers.IO) {
         try {
             val projectDir = File(projectPath)
 
@@ -498,14 +514,17 @@ class SmartBuildManager(
                 val removeResult = appTerminal.execute("rm -rf '$projectPath'")
                 if (!removeResult.success) {
                     Log.w(TAG, "Failed to remove existing directory: ${removeResult.output}")
+                    errorCallback?.invoke("⚠️ Warning: Failed to remove existing directory\n${removeResult.output}")
                     // Continue anyway, git clone might handle it
                 }
             }
 
             // Create parent directory
             projectDir.parentFile?.mkdirs()
+            Log.d(TAG, "Created parent directory: ${projectDir.parentFile?.absolutePath}")
 
             Log.d(TAG, "📦 Cloning $repoUrl (branch: $targetBranch) to $projectPath")
+            errorCallback?.invoke("Executing: git clone -b $targetBranch")
 
             // Use git clone command with single quotes to avoid quote escaping issues
             // Single quotes prevent variable expansion in shell, so we use Kotlin string interpolation
@@ -516,6 +535,7 @@ class SmartBuildManager(
             if (result.success) {
                 Log.d(TAG, "✅ Git clone successful")
                 Log.d(TAG, result.output)
+                errorCallback?.invoke("Git output: ${result.output.take(200)}")
 
                 // Add git safe.directory to prevent ownership errors
                 appTerminal.execute("git config --global --add safe.directory '$projectPath'")
@@ -525,13 +545,16 @@ class SmartBuildManager(
 
                 true
             } else {
-                Log.e(TAG, "❌ Git clone failed: ${result.output}")
-                Log.e(TAG, "Command was: git clone -b $targetBranch '$repoUrl' '$projectPath'")
+                val errorMsg = "Git clone failed!\nExit code: ${result.exitCode}\nCommand: git clone -b $targetBranch '$repoUrl' '$projectPath'\nOutput: ${result.output}"
+                Log.e(TAG, "❌ $errorMsg")
+                errorCallback?.invoke(errorMsg)
                 false
             }
 
         } catch (e: Exception) {
-            Log.e(TAG, "Git clone error: ${e.message}", e)
+            val errorMsg = "Git clone exception: ${e.message}\n${e.stackTraceToString().take(500)}"
+            Log.e(TAG, errorMsg, e)
+            errorCallback?.invoke(errorMsg)
             false
         }
     }

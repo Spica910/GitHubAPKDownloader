@@ -705,6 +705,7 @@ class AiBuildActivity : AppCompatActivity() {
     private fun showBuildLog() {
         val dialogView = layoutInflater.inflate(R.layout.dialog_build_log, null)
         val logText = dialogView.findViewById<TextView>(R.id.buildLogText)
+        val copyLogButton = dialogView.findViewById<MaterialButton>(R.id.copyLogButton)
         val closeButton = dialogView.findViewById<MaterialButton>(R.id.closeButton)
 
         logText.text = if (currentBuildLog.isEmpty()) {
@@ -716,6 +717,13 @@ class AiBuildActivity : AppCompatActivity() {
         val dialog = AlertDialog.Builder(this)
             .setView(dialogView)
             .create()
+
+        copyLogButton.setOnClickListener {
+            val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            val clip = android.content.ClipData.newPlainText("Build Log", currentBuildLog)
+            clipboard.setPrimaryClip(clip)
+            Toast.makeText(this, "📋 Log copied to clipboard!", Toast.LENGTH_SHORT).show()
+        }
 
         closeButton.setOnClickListener {
             dialog.dismiss()
