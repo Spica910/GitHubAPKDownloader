@@ -35,7 +35,8 @@ class AiBuildActivity : AppCompatActivity() {
     private lateinit var cleanBuildCheckbox: MaterialCheckBox
     private lateinit var autoInstallCheckbox: MaterialCheckBox
     private lateinit var createPrCheckbox: MaterialCheckBox
-    private lateinit var syncRepositoryButton: MaterialButton
+    private lateinit var cloneRepositoryButton: MaterialButton
+    private lateinit var syncPullButton: MaterialButton
     private lateinit var buildApkButton: MaterialButton
     private lateinit var smartBuildButton: MaterialButton
     private lateinit var buildStatusCard: MaterialCardView
@@ -99,7 +100,8 @@ class AiBuildActivity : AppCompatActivity() {
         cleanBuildCheckbox = findViewById(R.id.cleanBuildCheckbox)
         autoInstallCheckbox = findViewById(R.id.autoInstallCheckbox)
         createPrCheckbox = findViewById(R.id.createPrCheckbox)
-        syncRepositoryButton = findViewById(R.id.syncRepositoryButton)
+        cloneRepositoryButton = findViewById(R.id.cloneRepositoryButton)
+        syncPullButton = findViewById(R.id.syncPullButton)
         buildApkButton = findViewById(R.id.buildApkButton)
         smartBuildButton = findViewById(R.id.smartBuildButton)
         buildStatusCard = findViewById(R.id.buildStatusCard)
@@ -147,8 +149,12 @@ class AiBuildActivity : AppCompatActivity() {
             startActivity(Intent(this, CliSetupActivity::class.java))
         }
 
-        syncRepositoryButton.setOnClickListener {
-            syncRepositoryOnly()
+        cloneRepositoryButton.setOnClickListener {
+            cloneRepositoryOnly()
+        }
+
+        syncPullButton.setOnClickListener {
+            syncPullOnly()
         }
 
         buildApkButton.setOnClickListener {
@@ -413,7 +419,10 @@ class AiBuildActivity : AppCompatActivity() {
         }
     }
 
-    private fun syncRepositoryOnly() {
+    /**
+     * Clone repository (Download - new copy)
+     */
+    private fun cloneRepositoryOnly() {
         lifecycleScope.launch {
             try {
                 // Validate repository selection
@@ -444,11 +453,11 @@ class AiBuildActivity : AppCompatActivity() {
                     selectedRepo.cloneUrl
                 }
 
-                android.util.Log.d("AiBuild", "Syncing: ${selectedRepo.fullName}")
+                android.util.Log.d("AiBuild", "Cloning: ${selectedRepo.fullName}")
 
                 // Disable button
-                syncRepositoryButton.isEnabled = false
-                syncRepositoryButton.text = "Syncing..."
+                cloneRepositoryButton.isEnabled = false
+                cloneRepositoryButton.text = "Cloning..."
 
                 // Show status card
                 buildStatusCard.visibility = View.VISIBLE
@@ -457,26 +466,81 @@ class AiBuildActivity : AppCompatActivity() {
                 // Get selected branch
                 val branch = branchSpinner.selectedItem?.toString() ?: "master"
 
-                // Sync repository only
-                val result = smartBuildManager.syncRepositoryOnly(repoUrl, branch)
+                // Clone repository
+                val result = smartBuildManager.cloneOnly(repoUrl, branch)
 
                 // Handle result
                 if (result.success) {
                     Toast.makeText(
                         this@AiBuildActivity,
-                        "✅ Repository synced successfully!\nReady to build.",
+                        "✅ Repository cloned successfully!\nReady to build.",
                         Toast.LENGTH_SHORT
                     ).show()
                 } else {
-                    showErrorDialog(result.errorLog ?: "Sync failed")
+                    showErrorDialog(result.errorLog ?: "Clone failed")
                 }
 
             } catch (e: Exception) {
-                android.util.Log.e("AiBuild", "Sync error: ${e.message}", e)
+                android.util.Log.e("AiBuild", "Clone error: ${e.message}", e)
                 showErrorDialog(e.message ?: "Unknown error")
             } finally {
-                syncRepositoryButton.isEnabled = true
-                syncRepositoryButton.text = "📥 Sync\nRepository"
+                cloneRepositoryButton.isEnabled = true
+                cloneRepositoryButton.text = "⬇️ Clone\n(Download)"
+            }
+        }
+    }
+
+    /**
+     * Sync/Pull repository (Update - pull latest changes)
+     */
+    private fun syncPullOnly() {
+        lifecycleScope.launch {
+            try {
+                // Validate repository selection
+                val selectedIndex = repositorySpinner.selectedItemPosition
+                if (selectedIndex < 0 || selectedIndex >= userRepositories.size) {
+                    Toast.makeText(
+                        this@AiBuildActivity,
+                        "❌ 리포지토리를 먼저 선택하세요",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    return@launch
+                }
+
+                val selectedRepo = userRepositories[selectedIndex]
+                android.util.Log.d("AiBuild", "Pulling: ${selectedRepo.fullName}")
+
+                // Disable button
+                syncPullButton.isEnabled = false
+                syncPullButton.text = "Pulling..."
+
+                // Show status card
+                buildStatusCard.visibility = View.VISIBLE
+                currentBuildLog = ""
+
+                // Get selected branch
+                val branch = branchSpinner.selectedItem?.toString() ?: "master"
+
+                // Pull latest changes
+                val result = smartBuildManager.pullOnly(branch)
+
+                // Handle result
+                if (result.success) {
+                    Toast.makeText(
+                        this@AiBuildActivity,
+                        "✅ Repository updated successfully!\nReady to build.",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                } else {
+                    showErrorDialog(result.errorLog ?: "Pull failed")
+                }
+
+            } catch (e: Exception) {
+                android.util.Log.e("AiBuild", "Pull error: ${e.message}", e)
+                showErrorDialog(e.message ?: "Unknown error")
+            } finally {
+                syncPullButton.isEnabled = true
+                syncPullButton.text = "⬆️ Sync/Pull\n(Update)"
             }
         }
     }

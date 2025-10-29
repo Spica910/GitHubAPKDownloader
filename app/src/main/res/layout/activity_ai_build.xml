@@ -314,7 +314,7 @@
 
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- Action Buttons -->
+            <!-- Action Buttons Row 1: Clone and Sync/Pull -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -323,25 +323,45 @@
                 android:weightSum="2">
 
                 <com.google.android.material.button.MaterialButton
-                    android:id="@+id/syncRepositoryButton"
+                    android:id="@+id/cloneRepositoryButton"
                     android:layout_width="0dp"
                     android:layout_height="56dp"
                     android:layout_weight="1"
                     android:layout_marginEnd="4dp"
-                    android:text="📥 Sync\nRepository"
+                    android:text="⬇️ Clone\n(Download)"
+                    android:textSize="14sp"
+                    android:textColor="@color/white"
+                    app:backgroundTint="#9C27B0"
+                    app:cornerRadius="8dp"
+                    style="@style/Widget.MaterialComponents.Button" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/syncPullButton"
+                    android:layout_width="0dp"
+                    android:layout_height="56dp"
+                    android:layout_weight="1"
+                    android:layout_marginStart="4dp"
+                    android:text="⬆️ Sync/Pull\n(Update)"
                     android:textSize="14sp"
                     android:textColor="@color/white"
                     app:backgroundTint="#2196F3"
                     app:cornerRadius="8dp"
                     style="@style/Widget.MaterialComponents.Button" />
 
+            </LinearLayout>
+
+            <!-- Action Buttons Row 2: Build APK -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="8dp">
+
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/buildApkButton"
-                    android:layout_width="0dp"
+                    android:layout_width="match_parent"
                     android:layout_height="56dp"
-                    android:layout_weight="1"
-                    android:layout_marginStart="4dp"
-                    android:text="🔨 Build\nAPK"
+                    android:text="🔨 Build APK"
                     android:textSize="14sp"
                     android:textColor="@color/white"
                     app:backgroundTint="#FF9800"

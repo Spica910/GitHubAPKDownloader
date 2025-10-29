@@ -29,31 +29,73 @@ class SmartBuildManager(
     }
 
     /**
-     * Sync repository only (clone or pull)
+     * Clone repository only (Download - new copy from GitHub)
      */
-    suspend fun syncRepositoryOnly(
+    suspend fun cloneOnly(
         repoUrl: String,
         branch: String = DEFAULT_BRANCH
     ): BuildResult = withContext(Dispatchers.IO) {
         try {
             _buildStatus.value = BuildStatus.Syncing
-            Log.d(TAG, "📥 Syncing repository only...")
+            Log.d(TAG, "⬇️ Cloning repository (download new copy)...")
 
-            val syncResult = syncRepository(repoUrl, branch)
+            val cloneResult = cloneRepository(repoUrl, branch)
 
-            _buildStatus.value = if (syncResult) {
+            _buildStatus.value = if (cloneResult) {
                 BuildStatus.Success("", 0)
             } else {
-                BuildStatus.Failed("Failed to sync repository")
+                BuildStatus.Failed("Failed to clone repository")
             }
 
             BuildResult(
-                success = syncResult,
-                errorLog = if (syncResult) null else "Failed to clone/sync repository from GitHub"
+                success = cloneResult,
+                errorLog = if (cloneResult) null else "Failed to clone repository from GitHub"
             )
 
         } catch (e: Exception) {
-            Log.e(TAG, "Error during sync: ${e.message}", e)
+            Log.e(TAG, "Error during clone: ${e.message}", e)
+            _buildStatus.value = BuildStatus.Failed(e.message ?: "Unknown error")
+            BuildResult(
+                success = false,
+                errorLog = e.toString()
+            )
+        }
+    }
+
+    /**
+     * Pull/Sync repository only (Update - pull latest changes)
+     */
+    suspend fun pullOnly(
+        branch: String = DEFAULT_BRANCH
+    ): BuildResult = withContext(Dispatchers.IO) {
+        try {
+            _buildStatus.value = BuildStatus.Syncing
+            Log.d(TAG, "⬆️ Pulling latest changes (update)...")
+
+            val projectDir = File(projectPath)
+            if (!projectDir.exists() || !File(projectDir, ".git").exists()) {
+                _buildStatus.value = BuildStatus.Failed("Repository not found. Please clone first.")
+                return@withContext BuildResult(
+                    success = false,
+                    errorLog = "Repository not cloned yet. Use Clone button first."
+                )
+            }
+
+            val pullResult = gitPull(branch)
+
+            _buildStatus.value = if (pullResult) {
+                BuildStatus.Success("", 0)
+            } else {
+                BuildStatus.Failed("Failed to pull updates")
+            }
+
+            BuildResult(
+                success = pullResult,
+                errorLog = if (pullResult) null else "Failed to pull updates from GitHub"
+            )
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error during pull: ${e.message}", e)
             _buildStatus.value = BuildStatus.Failed(e.message ?: "Unknown error")
             BuildResult(
                 success = false,
