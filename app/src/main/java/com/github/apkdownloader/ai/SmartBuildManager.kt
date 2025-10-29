@@ -26,7 +26,6 @@ class SmartBuildManager(
     companion object {
         private const val TAG = "SmartBuildManager"
         private const val DEFAULT_BRANCH = "master"
-        private const val GIT_PATH = "/data/data/com.termux/files/usr/bin/git"
     }
 
     /**
@@ -467,12 +466,12 @@ class SmartBuildManager(
             }
 
             // Add git safe.directory first
-            appTerminal.execute("$GIT_PATH config --global --add safe.directory '$projectPath'")
+            appTerminal.execute("git config --global --add safe.directory '$projectPath'")
 
             // Force pull: fetch and reset to match remote exactly
             // This will OVERWRITE any local changes
             // Use working directory instead of cd command
-            val fetchResult = appTerminal.execute("$GIT_PATH fetch origin $branch", projectDir)
+            val fetchResult = appTerminal.execute("git fetch origin $branch", projectDir)
             if (!fetchResult.success) {
                 val errorMsg = "Git fetch failed!\nExit code: ${fetchResult.exitCode}\nOutput: ${fetchResult.output}"
                 Log.e(TAG, "❌ $errorMsg")
@@ -480,7 +479,7 @@ class SmartBuildManager(
                 return@withContext false
             }
 
-            val resetResult = appTerminal.execute("$GIT_PATH reset --hard origin/$branch", projectDir)
+            val resetResult = appTerminal.execute("git reset --hard origin/$branch", projectDir)
             if (!resetResult.success) {
                 val errorMsg = "Git reset failed!\nExit code: ${resetResult.exitCode}\nOutput: ${resetResult.output}"
                 Log.e(TAG, "❌ $errorMsg")
@@ -525,12 +524,12 @@ class SmartBuildManager(
             Log.d(TAG, "Created parent directory: ${projectDir.parentFile?.absolutePath}")
 
             Log.d(TAG, "📦 Cloning $repoUrl (branch: $targetBranch) to $projectPath")
-            errorCallback?.invoke("Executing: $GIT_PATH clone -b $targetBranch")
+            errorCallback?.invoke("Executing: git clone -b $targetBranch")
 
             // Use git clone command with single quotes to avoid quote escaping issues
             // Single quotes prevent variable expansion in shell, so we use Kotlin string interpolation
             val result = appTerminal.execute(
-                "$GIT_PATH clone -b $targetBranch '$repoUrl' '$projectPath'"
+                "git clone -b $targetBranch '$repoUrl' '$projectPath'"
             )
 
             if (result.success) {
@@ -539,14 +538,14 @@ class SmartBuildManager(
                 errorCallback?.invoke("Git output: ${result.output.take(200)}")
 
                 // Add git safe.directory to prevent ownership errors
-                appTerminal.execute("$GIT_PATH config --global --add safe.directory '$projectPath'")
+                appTerminal.execute("git config --global --add safe.directory '$projectPath'")
 
                 // Make gradlew executable
                 makeGradlewExecutable()
 
                 true
             } else {
-                val errorMsg = "Git clone failed!\nExit code: ${result.exitCode}\nCommand: $GIT_PATH clone -b $targetBranch '$repoUrl' '$projectPath'\nOutput: ${result.output}"
+                val errorMsg = "Git clone failed!\nExit code: ${result.exitCode}\nCommand: git clone -b $targetBranch '$repoUrl' '$projectPath'\nOutput: ${result.output}"
                 Log.e(TAG, "❌ $errorMsg")
                 errorCallback?.invoke(errorMsg)
                 false
@@ -650,7 +649,7 @@ class SmartBuildManager(
                 return@withContext false
             }
 
-            val result = appTerminal.execute("$GIT_PATH status --porcelain", projectDir)
+            val result = appTerminal.execute("git status --porcelain", projectDir)
 
             if (result.success) {
                 result.output.trim().isNotEmpty()

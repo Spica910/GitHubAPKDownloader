@@ -42,17 +42,15 @@ class AppTerminal(private val context: Context) {
             // Build environment with app's paths
             val env = buildEnvironment()
 
-            // Try to use Termux bash if available, otherwise fallback to /system/bin/sh
-            val termuxBash = File("/data/data/com.termux/files/usr/bin/bash")
-            val shell = if (termuxBash.exists()) {
-                Log.d(TAG, "Using Termux bash")
-                "/data/data/com.termux/files/usr/bin/bash"
-            } else {
-                Log.d(TAG, "Using system sh")
-                "/system/bin/sh"
-            }
+            // Always use /system/bin/sh but prepend PATH export to command
+            // This ensures git and other Termux binaries can be found
+            val termuxBinPath = "/data/data/com.termux/files/usr/bin"
+            val pathPrefix = "export PATH=$termuxBinPath:\$PATH && "
+            val fullCommand = pathPrefix + command
 
-            val processBuilder = ProcessBuilder(shell, "-c", command)
+            Log.d(TAG, "Full command: $fullCommand")
+
+            val processBuilder = ProcessBuilder("/system/bin/sh", "-c", fullCommand)
 
             // Set working directory
             if (workingDir != null && workingDir.exists()) {
