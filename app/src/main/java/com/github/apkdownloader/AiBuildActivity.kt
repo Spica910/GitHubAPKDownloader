@@ -461,27 +461,37 @@ class AiBuildActivity : AppCompatActivity() {
 
                 // Show status card
                 buildStatusCard.visibility = View.VISIBLE
-                currentBuildLog = ""
+                currentBuildLog = "⬇️ Clone Operation Started\n"
+                currentBuildLog += "Repository: ${selectedRepo.fullName}\n"
+                currentBuildLog += "Branch: ${branchSpinner.selectedItem?.toString() ?: "master"}\n"
+                currentBuildLog += "URL: $repoUrl\n"
+                currentBuildLog += "---\n"
 
                 // Get selected branch
                 val branch = branchSpinner.selectedItem?.toString() ?: "master"
 
                 // Clone repository
+                currentBuildLog += "\n[Cloning] Downloading repository from GitHub...\n"
                 val result = smartBuildManager.cloneOnly(repoUrl, branch)
 
                 // Handle result
                 if (result.success) {
+                    currentBuildLog += "\n✅ Clone completed successfully!"
                     Toast.makeText(
                         this@AiBuildActivity,
                         "✅ Repository cloned successfully!\nReady to build.",
                         Toast.LENGTH_SHORT
                     ).show()
                 } else {
+                    currentBuildLog += "\n❌ Clone failed!\n"
+                    currentBuildLog += "Error: ${result.errorLog ?: "Unknown error"}\n"
                     showErrorDialog(result.errorLog ?: "Clone failed")
                 }
 
             } catch (e: Exception) {
                 android.util.Log.e("AiBuild", "Clone error: ${e.message}", e)
+                currentBuildLog += "\n❌ Exception occurred!\n"
+                currentBuildLog += "Error: ${e.message ?: "Unknown error"}\n"
                 showErrorDialog(e.message ?: "Unknown error")
             } finally {
                 cloneRepositoryButton.isEnabled = true
@@ -516,27 +526,36 @@ class AiBuildActivity : AppCompatActivity() {
 
                 // Show status card
                 buildStatusCard.visibility = View.VISIBLE
-                currentBuildLog = ""
+                currentBuildLog = "⬆️ Sync/Pull Operation Started\n"
+                currentBuildLog += "Repository: ${selectedRepo.fullName}\n"
+                currentBuildLog += "Branch: ${branchSpinner.selectedItem?.toString() ?: "master"}\n"
+                currentBuildLog += "---\n"
 
                 // Get selected branch
                 val branch = branchSpinner.selectedItem?.toString() ?: "master"
 
                 // Pull latest changes
+                currentBuildLog += "\n[Pulling] Fetching latest changes from GitHub...\n"
                 val result = smartBuildManager.pullOnly(branch)
 
                 // Handle result
                 if (result.success) {
+                    currentBuildLog += "\n✅ Pull completed successfully!"
                     Toast.makeText(
                         this@AiBuildActivity,
                         "✅ Repository updated successfully!\nReady to build.",
                         Toast.LENGTH_SHORT
                     ).show()
                 } else {
+                    currentBuildLog += "\n❌ Pull failed!\n"
+                    currentBuildLog += "Error: ${result.errorLog ?: "Unknown error"}\n"
                     showErrorDialog(result.errorLog ?: "Pull failed")
                 }
 
             } catch (e: Exception) {
                 android.util.Log.e("AiBuild", "Pull error: ${e.message}", e)
+                currentBuildLog += "\n❌ Exception occurred!\n"
+                currentBuildLog += "Error: ${e.message ?: "Unknown error"}\n"
                 showErrorDialog(e.message ?: "Unknown error")
             } finally {
                 syncPullButton.isEnabled = true
@@ -554,7 +573,11 @@ class AiBuildActivity : AppCompatActivity() {
 
                 // Show status card
                 buildStatusCard.visibility = View.VISIBLE
-                currentBuildLog = ""
+                currentBuildLog = "🔨 Build Operation Started\n"
+                currentBuildLog += "Clean Build: ${cleanBuildCheckbox.isChecked}\n"
+                currentBuildLog += "Auto Install: ${autoInstallCheckbox.isChecked}\n"
+                currentBuildLog += "Create PR: ${createPrCheckbox.isChecked}\n"
+                currentBuildLog += "---\n"
 
                 // Create config from checkboxes
                 val config = AiBuildConfig(
@@ -570,10 +593,13 @@ class AiBuildActivity : AppCompatActivity() {
                 projectConfig.saveAiBuildConfig(config)
 
                 // Build only (no sync)
+                currentBuildLog += "\n[Building] Compiling APK...\n"
                 val result = smartBuildManager.buildOnly(config)
 
                 // Handle result
                 if (result.success) {
+                    currentBuildLog += "\n✅ Build completed successfully!"
+                    currentBuildLog += "\nAPK: ${result.apkPath ?: "Unknown"}\n"
                     showSuccessDialog(result)
 
                     // Install APK if auto-install is enabled
@@ -581,11 +607,15 @@ class AiBuildActivity : AppCompatActivity() {
                         installApk(result.apkPath)
                     }
                 } else {
+                    currentBuildLog += "\n❌ Build failed!\n"
+                    currentBuildLog += "Error: ${result.errorLog ?: "Unknown error"}\n"
                     showErrorDialog(result.errorLog ?: "Build failed")
                 }
 
             } catch (e: Exception) {
                 android.util.Log.e("AiBuild", "Build error: ${e.message}", e)
+                currentBuildLog += "\n❌ Exception occurred!\n"
+                currentBuildLog += "Error: ${e.message ?: "Unknown error"}\n"
                 showErrorDialog(e.message ?: "Unknown error")
             } finally {
                 buildApkButton.isEnabled = true
@@ -633,12 +663,12 @@ class AiBuildActivity : AppCompatActivity() {
                 currentBuildLog += "\n[${System.currentTimeMillis()}] Success!"
             }
             is BuildStatus.Failed -> {
-                val message = if (status.error.contains("clone", ignoreCase = true) ||
-                                 status.error.contains("sync", ignoreCase = true) ||
-                                 status.error.contains("git", ignoreCase = true)) {
-                    "❌ Sync failed\n${status.error}"
-                } else {
-                    "❌ Build failed\n${status.error}"
+                val message = when {
+                    status.error.contains("clone", ignoreCase = true) -> "❌ Clone failed\n${status.error}"
+                    status.error.contains("pull", ignoreCase = true) -> "❌ Pull failed\n${status.error}"
+                    status.error.contains("sync", ignoreCase = true) -> "❌ Sync failed\n${status.error}"
+                    status.error.contains("git", ignoreCase = true) -> "❌ Git operation failed\n${status.error}"
+                    else -> "❌ Build failed\n${status.error}"
                 }
                 buildStatusText.text = message
                 buildProgressBar.visibility = View.GONE
