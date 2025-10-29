@@ -297,19 +297,24 @@ class SmartBuildManager(
      */
     private suspend fun executeGradleBuild(): BuildResult = withContext(Dispatchers.IO) {
         try {
+            val projectDir = File(projectPath)
             val gradlewFile = File(projectPath, "gradlew")
             val command = if (gradlewFile.exists()) {
-                "cd \"$projectPath\" && ./gradlew assembleDebug --stacktrace"
+                "./gradlew assembleDebug --stacktrace"
             } else {
-                "cd \"$projectPath\" && gradle assembleDebug --stacktrace"
+                "gradle assembleDebug --stacktrace"
             }
 
-            Log.d(TAG, "Executing: $command")
+            Log.d(TAG, "Executing: $command in $projectPath")
 
-            val result = appTerminal.execute(command)
+            val result = appTerminal.execute(command, projectDir)
             val output = result.output
 
-            Log.d(TAG, "Build output: $output")
+            if (output.length > 1000) {
+                Log.d(TAG, "Build output (last 1000 chars): ${output.takeLast(1000)}")
+            } else {
+                Log.d(TAG, "Build output: $output")
+            }
 
             if (result.success) {
                 // Find APK
@@ -403,27 +408,34 @@ class SmartBuildManager(
         try {
             Log.d(TAG, "Running git pull origin $branch in $projectPath (force update)")
 
+            val projectDir = File(projectPath)
+            if (!projectDir.exists()) {
+                Log.e(TAG, "Project directory does not exist: $projectPath")
+                return@withContext false
+            }
+
             // Add git safe.directory first
-            appTerminal.execute("git config --global --add safe.directory \"$projectPath\"")
+            appTerminal.execute("git config --global --add safe.directory '$projectPath'")
 
             // Force pull: fetch and reset to match remote exactly
             // This will OVERWRITE any local changes
-            val commands = """
-                cd "$projectPath" && \
-                git fetch origin $branch && \
-                git reset --hard origin/$branch
-            """.trimIndent()
-
-            val result = appTerminal.execute(commands)
-
-            if (result.success) {
-                Log.d(TAG, "✅ Git pull successful (force updated)")
-                Log.d(TAG, result.output)
-                true
-            } else {
-                Log.e(TAG, "❌ Git pull failed: ${result.output}")
-                false
+            // Use working directory instead of cd command
+            val fetchResult = appTerminal.execute("git fetch origin $branch", projectDir)
+            if (!fetchResult.success) {
+                Log.e(TAG, "❌ Git fetch failed: ${fetchResult.output}")
+                return@withContext false
             }
+
+            val resetResult = appTerminal.execute("git reset --hard origin/$branch", projectDir)
+            if (!resetResult.success) {
+                Log.e(TAG, "❌ Git reset failed: ${resetResult.output}")
+                return@withContext false
+            }
+
+            Log.d(TAG, "✅ Git pull successful (force updated)")
+            Log.d(TAG, "Fetch: ${fetchResult.output}")
+            Log.d(TAG, "Reset: ${resetResult.output}")
+            true
 
         } catch (e: Exception) {
             Log.e(TAG, "Git pull error: ${e.message}", e)
@@ -441,7 +453,7 @@ class SmartBuildManager(
             // If directory exists, remove it for clean clone
             if (projectDir.exists()) {
                 Log.d(TAG, "⚠️ Directory exists, removing for clean clone...")
-                val removeResult = appTerminal.execute("rm -rf \"$projectPath\"")
+                val removeResult = appTerminal.execute("rm -rf '$projectPath'")
                 if (!removeResult.success) {
                     Log.w(TAG, "Failed to remove existing directory: ${removeResult.output}")
                     // Continue anyway, git clone might handle it
@@ -453,9 +465,10 @@ class SmartBuildManager(
 
             Log.d(TAG, "📦 Cloning $repoUrl (branch: $targetBranch) to $projectPath")
 
-            // Use git clone command
+            // Use git clone command with single quotes to avoid quote escaping issues
+            // Single quotes prevent variable expansion in shell, so we use Kotlin string interpolation
             val result = appTerminal.execute(
-                "git clone -b $targetBranch \"$repoUrl\" \"$projectPath\""
+                "git clone -b $targetBranch '$repoUrl' '$projectPath'"
             )
 
             if (result.success) {
@@ -463,7 +476,7 @@ class SmartBuildManager(
                 Log.d(TAG, result.output)
 
                 // Add git safe.directory to prevent ownership errors
-                appTerminal.execute("git config --global --add safe.directory \"$projectPath\"")
+                appTerminal.execute("git config --global --add safe.directory '$projectPath'")
 
                 // Make gradlew executable
                 makeGradlewExecutable()
@@ -471,6 +484,7 @@ class SmartBuildManager(
                 true
             } else {
                 Log.e(TAG, "❌ Git clone failed: ${result.output}")
+                Log.e(TAG, "Command was: git clone -b $targetBranch '$repoUrl' '$projectPath'")
                 false
             }
 
@@ -491,7 +505,7 @@ class SmartBuildManager(
                 return@withContext false
             }
 
-            val result = appTerminal.execute("chmod +x \"${gradlewFile.absolutePath}\"")
+            val result = appTerminal.execute("chmod +x '${gradlewFile.absolutePath}'")
 
             if (result.success) {
                 Log.d(TAG, "✅ gradlew made executable")
@@ -512,14 +526,15 @@ class SmartBuildManager(
      */
     private suspend fun cleanBuild(): Boolean = withContext(Dispatchers.IO) {
         try {
+            val projectDir = File(projectPath)
             val gradlewFile = File(projectPath, "gradlew")
             val command = if (gradlewFile.exists()) {
-                "cd \"$projectPath\" && ./gradlew clean"
+                "./gradlew clean"
             } else {
-                "cd \"$projectPath\" && gradle clean"
+                "gradle clean"
             }
 
-            val result = appTerminal.execute(command)
+            val result = appTerminal.execute(command, projectDir)
             result.success
 
         } catch (e: Exception) {
@@ -564,7 +579,12 @@ class SmartBuildManager(
      */
     suspend fun hasUncommittedChanges(): Boolean = withContext(Dispatchers.IO) {
         try {
-            val result = appTerminal.execute("cd \"$projectPath\" && git status --porcelain")
+            val projectDir = File(projectPath)
+            if (!projectDir.exists()) {
+                return@withContext false
+            }
+
+            val result = appTerminal.execute("git status --porcelain", projectDir)
 
             if (result.success) {
                 result.output.trim().isNotEmpty()

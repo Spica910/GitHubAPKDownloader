@@ -35,11 +35,24 @@ class AppTerminal(private val context: Context) {
     suspend fun execute(command: String, workingDir: File? = null): CommandResult = withContext(Dispatchers.IO) {
         try {
             Log.d(TAG, "Executing: $command")
+            if (workingDir != null) {
+                Log.d(TAG, "Working directory: ${workingDir.absolutePath}")
+            }
 
             // Build environment with app's paths
             val env = buildEnvironment()
 
-            val processBuilder = ProcessBuilder("/system/bin/sh", "-c", command)
+            // Try to use Termux bash if available, otherwise fallback to /system/bin/sh
+            val termuxBash = File("/data/data/com.termux/files/usr/bin/bash")
+            val shell = if (termuxBash.exists()) {
+                Log.d(TAG, "Using Termux bash")
+                "/data/data/com.termux/files/usr/bin/bash"
+            } else {
+                Log.d(TAG, "Using system sh")
+                "/system/bin/sh"
+            }
+
+            val processBuilder = ProcessBuilder(shell, "-c", command)
 
             // Set working directory
             if (workingDir != null && workingDir.exists()) {
@@ -61,7 +74,12 @@ class AppTerminal(private val context: Context) {
             val exitCode = process.waitFor()
 
             Log.d(TAG, "Exit code: $exitCode")
-            Log.d(TAG, "Output: $output")
+            if (output.length > 500) {
+                Log.d(TAG, "Output (first 500 chars): ${output.take(500)}...")
+                Log.d(TAG, "Output (last 500 chars): ...${output.takeLast(500)}")
+            } else {
+                Log.d(TAG, "Output: $output")
+            }
 
             CommandResult(
                 exitCode = exitCode,
