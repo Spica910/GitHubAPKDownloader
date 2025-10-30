@@ -31,14 +31,22 @@ class AppTerminal(private val context: Context) {
 
     /**
      * Execute a command in the app's environment
+     * Uses Termux RUN_COMMAND intent for git commands to bypass Android app sandboxing
      */
     suspend fun execute(command: String, workingDir: File? = null): CommandResult = withContext(Dispatchers.IO) {
         try {
             Log.d(TAG, "Executing: $command")
 
-            // Build environment with app's paths
-            val env = buildEnvironment()
+            // Check if this is a git command
+            val isGitCommand = command.trim().startsWith("/data/data/com.termux/files/usr/bin/git") ||
+                              command.trim().startsWith("git ")
 
+            if (isGitCommand) {
+                // Use Termux RUN_COMMAND intent for git commands
+                return@withContext executeViaTermux(command, workingDir)
+            }
+
+            // For non-git commands, use regular shell execution
             val processBuilder = ProcessBuilder("/system/bin/sh", "-c", command)
 
             // Set working directory
@@ -48,7 +56,8 @@ class AppTerminal(private val context: Context) {
                 processBuilder.directory(appHomeDir)
             }
 
-            // Set environment variables
+            // Build environment with app's paths
+            val env = buildEnvironment()
             processBuilder.environment().putAll(env)
             processBuilder.redirectErrorStream(true)
 
@@ -74,6 +83,99 @@ class AppTerminal(private val context: Context) {
             CommandResult(
                 exitCode = -1,
                 output = e.message ?: "Unknown error",
+                success = false
+            )
+        }
+    }
+
+    /**
+     * Execute a command using Termux RUN_COMMAND intent
+     * This allows the app to run commands in Termux's environment
+     */
+    private suspend fun executeViaTermux(command: String, workingDir: File?): CommandResult = withContext(Dispatchers.IO) {
+        try {
+            Log.d(TAG, "Executing via Termux: $command")
+
+            // Create a unique output file for this command
+            val outputFile = File(context.cacheDir, "termux_output_${System.currentTimeMillis()}.txt")
+            val errorFile = File(context.cacheDir, "termux_error_${System.currentTimeMillis()}.txt")
+
+            // Build the command with output redirection
+            val workingDirPath = workingDir?.absolutePath ?: "/storage/emulated/0"
+            val fullCommand = "cd '$workingDirPath' && $command > '${outputFile.absolutePath}' 2> '${errorFile.absolutePath}'; echo \$? > '${outputFile.absolutePath}.exit'"
+
+            val intent = android.content.Intent()
+            intent.setClassName("com.termux", "com.termux.app.RunCommandService")
+            intent.action = "com.termux.RUN_COMMAND"
+            intent.putExtra("com.termux.RUN_COMMAND_PATH", "/data/data/com.termux/files/usr/bin/bash")
+            intent.putExtra("com.termux.RUN_COMMAND_ARGUMENTS", arrayOf("-c", fullCommand))
+            intent.putExtra("com.termux.RUN_COMMAND_WORKDIR", workingDirPath)
+            intent.putExtra("com.termux.RUN_COMMAND_BACKGROUND", false)
+
+            // Start the service
+            context.startService(intent)
+
+            // Wait for the command to complete (check for output files)
+            var waitTime = 0
+            val maxWaitTime = 60000 // 60 seconds
+            while (waitTime < maxWaitTime) {
+                kotlinx.coroutines.delay(500)
+                waitTime += 500
+
+                if (File("${outputFile.absolutePath}.exit").exists()) {
+                    break
+                }
+            }
+
+            // Read the output
+            val output = if (outputFile.exists()) {
+                outputFile.readText()
+            } else {
+                ""
+            }
+
+            val errorOutput = if (errorFile.exists()) {
+                errorFile.readText()
+            } else {
+                ""
+            }
+
+            val exitCodeFile = File("${outputFile.absolutePath}.exit")
+            val exitCode = if (exitCodeFile.exists()) {
+                try {
+                    exitCodeFile.readText().trim().toInt()
+                } catch (e: Exception) {
+                    -1
+                }
+            } else {
+                -1
+            }
+
+            // Cleanup
+            outputFile.delete()
+            errorFile.delete()
+            exitCodeFile.delete()
+
+            val combinedOutput = if (errorOutput.isNotEmpty()) {
+                "$output\n$errorOutput"
+            } else {
+                output
+            }
+
+            Log.d(TAG, "Termux execution completed. Exit code: $exitCode")
+            Log.d(TAG, "Output: $combinedOutput")
+
+            CommandResult(
+                exitCode = exitCode,
+                output = combinedOutput,
+                success = exitCode == 0
+            )
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error executing via Termux: ${e.message}", e)
+            CommandResult(
+                exitCode = -1,
+                output = "Failed to execute via Termux: ${e.message}",
                 success = false
             )
         }

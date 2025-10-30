@@ -63,12 +63,19 @@ class PrCreator(private val projectPath: String) {
      */
     private suspend fun createBranch(branchName: String): Boolean = withContext(Dispatchers.IO) {
         try {
-            val process = ProcessBuilder(
+            val processBuilder = ProcessBuilder(
                 "git", "checkout", "-b", branchName
             )
                 .directory(File(projectPath))
                 .redirectErrorStream(true)
-                .start()
+
+            // Add Termux paths to environment
+            val env = processBuilder.environment()
+            val termuxBin = "/data/data/com.termux/files/usr/bin"
+            val currentPath = env["PATH"] ?: "/system/bin:/system/xbin"
+            env["PATH"] = "$termuxBin:$currentPath"
+
+            val process = processBuilder.start()
 
             val exitCode = process.waitFor()
             if (exitCode == 0) {
@@ -91,21 +98,34 @@ class PrCreator(private val projectPath: String) {
     private suspend fun commitChanges(message: String): Boolean = withContext(Dispatchers.IO) {
         try {
             // Add all changes
-            var process = ProcessBuilder("git", "add", ".")
+            val addProcessBuilder = ProcessBuilder("git", "add", ".")
                 .directory(File(projectPath))
-                .start()
+
+            // Add Termux paths to environment
+            val addEnv = addProcessBuilder.environment()
+            val termuxBin = "/data/data/com.termux/files/usr/bin"
+            var currentPath = addEnv["PATH"] ?: "/system/bin:/system/xbin"
+            addEnv["PATH"] = "$termuxBin:$currentPath"
+
+            var process = addProcessBuilder.start()
 
             if (process.waitFor() != 0) {
                 return@withContext false
             }
 
             // Commit with message
-            process = ProcessBuilder(
+            val commitProcessBuilder = ProcessBuilder(
                 "git", "commit", "-m", message
             )
                 .directory(File(projectPath))
                 .redirectErrorStream(true)
-                .start()
+
+            // Add Termux paths to environment
+            val commitEnv = commitProcessBuilder.environment()
+            currentPath = commitEnv["PATH"] ?: "/system/bin:/system/xbin"
+            commitEnv["PATH"] = "$termuxBin:$currentPath"
+
+            process = commitProcessBuilder.start()
 
             val exitCode = process.waitFor()
             if (exitCode == 0) {
@@ -127,12 +147,19 @@ class PrCreator(private val projectPath: String) {
      */
     private suspend fun pushBranch(branchName: String): Boolean = withContext(Dispatchers.IO) {
         try {
-            val process = ProcessBuilder(
+            val processBuilder = ProcessBuilder(
                 "git", "push", "-u", "origin", branchName
             )
                 .directory(File(projectPath))
                 .redirectErrorStream(true)
-                .start()
+
+            // Add Termux paths to environment
+            val env = processBuilder.environment()
+            val termuxBin = "/data/data/com.termux/files/usr/bin"
+            val currentPath = env["PATH"] ?: "/system/bin:/system/xbin"
+            env["PATH"] = "$termuxBin:$currentPath"
+
+            val process = processBuilder.start()
 
             val exitCode = process.waitFor()
             if (exitCode == 0) {
@@ -161,7 +188,7 @@ class PrCreator(private val projectPath: String) {
             val title = buildPrTitle(fixResults)
             val body = buildPrBody(fixResults, originalError)
 
-            val process = ProcessBuilder(
+            val processBuilder = ProcessBuilder(
                 "gh", "pr", "create",
                 "--title", title,
                 "--body", body,
@@ -169,7 +196,14 @@ class PrCreator(private val projectPath: String) {
             )
                 .directory(File(projectPath))
                 .redirectErrorStream(true)
-                .start()
+
+            // Add Termux paths to environment
+            val env = processBuilder.environment()
+            val termuxBin = "/data/data/com.termux/files/usr/bin"
+            val currentPath = env["PATH"] ?: "/system/bin:/system/xbin"
+            env["PATH"] = "$termuxBin:$currentPath"
+
+            val process = processBuilder.start()
 
             val output = BufferedReader(InputStreamReader(process.inputStream)).use {
                 it.readText()
@@ -274,8 +308,15 @@ class PrCreator(private val projectPath: String) {
      */
     suspend fun canCreatePr(): Boolean = withContext(Dispatchers.IO) {
         try {
-            val process = ProcessBuilder("gh", "auth", "status")
-                .start()
+            val processBuilder = ProcessBuilder("gh", "auth", "status")
+
+            // Add Termux paths to environment
+            val env = processBuilder.environment()
+            val termuxBin = "/data/data/com.termux/files/usr/bin"
+            val currentPath = env["PATH"] ?: "/system/bin:/system/xbin"
+            env["PATH"] = "$termuxBin:$currentPath"
+
+            val process = processBuilder.start()
 
             process.waitFor() == 0
 
