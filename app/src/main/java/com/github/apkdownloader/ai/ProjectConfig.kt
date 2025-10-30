@@ -8,7 +8,7 @@ import java.io.File
  * Project configuration manager
  * Supports external storage locations like /storage/emulated/0/Download
  */
-class ProjectConfig(context: Context) {
+class ProjectConfig(private val context: Context) {
 
     private val prefs: SharedPreferences = context.getSharedPreferences(
         "ai_build_config",
@@ -180,33 +180,63 @@ class ProjectConfig(context: Context) {
     }
 
     /**
-     * Clone a repository to external storage
+     * Clone a repository to external storage using JGit
      */
     suspend fun cloneRepository(
         repoUrl: String,
         projectName: String
-    ): Result<String> {
-        return try {
+    ): Result<String> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        try {
             ensureProjectDirectory()
 
             val targetPath = File(getProjectPath(), projectName)
             if (targetPath.exists()) {
-                return Result.failure(Exception("Project already exists"))
+                return@withContext Result.failure(Exception("Project already exists: ${targetPath.absolutePath}"))
             }
 
-            val process = ProcessBuilder(
-                "git", "clone", repoUrl, targetPath.absolutePath
-            ).start()
+            // Create parent directories if they don't exist
+            targetPath.parentFile?.mkdirs()
 
-            val exitCode = process.waitFor()
-            if (exitCode == 0) {
-                Result.success(targetPath.absolutePath)
-            } else {
-                Result.failure(Exception("Git clone failed"))
-            }
+            android.util.Log.d("ProjectConfig", "🔄 Starting JGit clone...")
+            android.util.Log.d("ProjectConfig", "URL: $repoUrl")
+            android.util.Log.d("ProjectConfig", "Target: ${targetPath.absolutePath}")
+
+            // Use JGit to clone the repository
+            org.eclipse.jgit.api.Git.cloneRepository()
+                .setURI(repoUrl)
+                .setDirectory(targetPath)
+                .setProgressMonitor(object : org.eclipse.jgit.lib.ProgressMonitor {
+                    override fun start(totalTasks: Int) {
+                        android.util.Log.d("ProjectConfig", "Clone started: $totalTasks tasks")
+                    }
+
+                    override fun beginTask(title: String?, totalWork: Int) {
+                        android.util.Log.d("ProjectConfig", "Task: $title ($totalWork)")
+                    }
+
+                    override fun update(completed: Int) {
+                        // Progress update
+                    }
+
+                    override fun endTask() {
+                        android.util.Log.d("ProjectConfig", "Task completed")
+                    }
+
+                    override fun isCancelled(): Boolean = false
+
+                    override fun showDuration(enabled: Boolean) {
+                        // Show duration setting
+                    }
+                })
+                .call()
+                .close()
+
+            android.util.Log.d("ProjectConfig", "✅ Clone successful: ${targetPath.absolutePath}")
+            Result.success(targetPath.absolutePath)
 
         } catch (e: Exception) {
-            Result.failure(e)
+            android.util.Log.e("ProjectConfig", "❌ Clone failed: ${e.message}", e)
+            Result.failure(Exception("Git clone failed: ${e.message}"))
         }
     }
 

@@ -40,16 +40,9 @@ class SmartBuildManager(
         val previousFixes = mutableListOf<String>()
 
         try {
-            // Step 1: Sync from GitHub
-            _buildStatus.value = BuildStatus.Syncing
-            Log.d(TAG, "📥 Syncing from GitHub...")
-            val syncResult = gitPull(branch)
-            if (!syncResult) {
-                return@withContext BuildResult(
-                    success = false,
-                    errorLog = "Failed to sync from GitHub"
-                )
-            }
+            // Step 1: Sync from GitHub (skipped - not needed for local builds)
+            // Users can manually use Sync button if they want to pull latest changes
+            Log.d(TAG, "⏭️ Skipping git sync for faster builds")
 
             // Step 2: Clean build if requested
             if (config.cleanBuild) {
@@ -141,43 +134,104 @@ class SmartBuildManager(
      */
     private suspend fun executeGradleBuild(): BuildResult = withContext(Dispatchers.IO) {
         try {
-            val gradlePath = File(projectPath, "gradlew").absolutePath
-            val commands = if (File(gradlePath).exists()) {
-                arrayOf(gradlePath, "assembleDebug", "--stacktrace")
-            } else {
-                arrayOf("gradle", "assembleDebug", "--stacktrace")
+            val gradlewFile = File(projectPath, "gradlew")
+
+            // Create a build script that can be executed in Termux
+            val buildScriptFile = File(projectPath, "run_build.sh")
+            val buildScript = """
+                #!/data/data/com.termux/files/usr/bin/bash
+                # Auto-generated build script for Termux
+
+                cd "$projectPath" || exit 1
+
+                # Setup Java environment
+                export JAVA_HOME=/data/data/com.termux/files/usr/lib/jvm/java-21-openjdk
+                export PATH=${'$'}JAVA_HOME/bin:/data/data/com.termux/files/usr/bin:${'$'}PATH
+
+                echo "🔨 Starting build..."
+                echo "📂 Working directory: ${'$'}PWD"
+                echo "☕ JAVA_HOME: ${'$'}JAVA_HOME"
+                echo ""
+
+                # Run gradle build
+                if [ -f "./gradlew" ]; then
+                    bash ./gradlew assembleDebug --stacktrace
+                    BUILD_EXIT=${'$'}?
+                else
+                    echo "❌ Error: gradlew not found in ${'$'}PWD"
+                    BUILD_EXIT=1
+                fi
+
+                echo ""
+                if [ ${'$'}BUILD_EXIT -eq 0 ]; then
+                    echo "✅ BUILD SUCCESSFUL"
+                    echo "📦 APK location: app/build/outputs/apk/debug/app-debug.apk"
+
+                    # Copy to Download folder
+                    if [ -f "app/build/outputs/apk/debug/app-debug.apk" ]; then
+                        APK_NAME="${'$'}(basename "$projectPath").apk"
+                        cp app/build/outputs/apk/debug/app-debug.apk "/storage/emulated/0/Download/${'$'}APK_NAME"
+                        echo "✅ APK copied to: /storage/emulated/0/Download/${'$'}APK_NAME"
+                    fi
+
+                    # Write success marker
+                    echo "SUCCESS" > build_result.txt
+                else
+                    echo "❌ BUILD FAILED (exit code: ${'$'}BUILD_EXIT)"
+                    echo "FAILED" > build_result.txt
+                fi
+
+                echo "BUILD_EXIT_CODE=${'$'}BUILD_EXIT" >> build_result.txt
+            """.trimIndent()
+
+            buildScriptFile.writeText(buildScript)
+            Log.d(TAG, "✅ Created build script: ${buildScriptFile.absolutePath}")
+
+            // Delete old result file
+            val resultFile = File(projectPath, "build_result.txt")
+            if (resultFile.exists()) resultFile.delete()
+
+            // Open Termux with the build command
+            val intent = android.content.Intent()
+            intent.action = android.content.Intent.ACTION_VIEW
+            intent.setClassName("com.termux", "com.termux.app.TermuxActivity")
+            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+
+            try {
+                context.startActivity(intent)
+                Log.d(TAG, "📱 Opened Termux app")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to open Termux: ${e.message}")
             }
 
-            val process = ProcessBuilder(*commands)
-                .directory(File(projectPath))
-                .redirectErrorStream(true)
-                .start()
+            // Copy command to clipboard
+            val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            val clip = android.content.ClipData.newPlainText(
+                "Build Command",
+                "cd \"$projectPath\" && bash run_build.sh"
+            )
+            clipboard.setPrimaryClip(clip)
+            Log.d(TAG, "📋 Build command copied to clipboard")
 
-            val output = StringBuilder()
-            BufferedReader(InputStreamReader(process.inputStream)).use { reader ->
-                reader.forEachLine { line ->
-                    output.appendLine(line)
-                    Log.d(TAG, line)
-                }
-            }
+            // Return with instruction to run manually
+            BuildResult(
+                success = false,
+                errorLog = """
+                    ⚠️ 수동 빌드가 필요합니다
 
-            val exitCode = process.waitFor()
+                    Termux가 열렸고 빌드 명령어가 클립보드에 복사되었습니다.
 
-            if (exitCode == 0) {
-                // Find APK
-                val apkFile = findGeneratedApk()
-                BuildResult(
-                    success = true,
-                    apkPath = apkFile?.absolutePath
-                )
-            } else {
-                // Extract error from output
-                val errorLog = extractError(output.toString())
-                BuildResult(
-                    success = false,
-                    errorLog = errorLog
-                )
-            }
+                    📋 Termux에서 다음 명령어를 붙여넣고 실행하세요:
+                    cd "$projectPath" && bash run_build.sh
+
+                    또는 간단히:
+                    bash run_build.sh
+
+                    ✅ 빌드가 완료되면 APK가 Download 폴더에 자동으로 복사됩니다.
+
+                    💡 TIP: 자동 빌드가 완료되면 앱으로 돌아와서 "Refresh" 버튼을 눌러 결과를 확인하세요.
+                """.trimIndent()
+            )
 
         } catch (e: Exception) {
             Log.e(TAG, "Build execution error: ${e.message}", e)
@@ -235,44 +289,56 @@ class SmartBuildManager(
             val gitDir = File(projectDir, ".git")
 
             if (!gitDir.exists()) {
-                Log.d(TAG, "Repository not cloned yet. Need to clone first.")
-                // Repository not cloned - need repository URL
-                // This requires repository information from ProjectConfig
-                Log.w(TAG, "⚠️ Git clone not implemented yet. Manual setup required.")
-                return@withContext false
+                Log.d(TAG, "Repository not cloned yet. Skipping git pull.")
+                // If repo is just cloned, we already have the latest code
+                return@withContext true
             }
 
-            // Directory exists, do git pull
+            // Directory exists, do git pull using JGit
             Log.d(TAG, "Running git pull origin $branch in $projectPath")
 
-            val process = ProcessBuilder(
-                "git", "pull", "origin", branch
-            )
-                .directory(projectDir)
-                .redirectErrorStream(true)
-                .start()
+            try {
+                val git = org.eclipse.jgit.api.Git.open(projectDir)
 
-            val output = StringBuilder()
-            BufferedReader(InputStreamReader(process.inputStream)).use { reader ->
-                reader.forEachLine { line ->
-                    output.appendLine(line)
-                    Log.d(TAG, "git: $line")
+                // Pull latest changes
+                val pullResult = git.pull()
+                    .setRemote("origin")
+                    .setRemoteBranchName(branch)
+                    .setProgressMonitor(object : org.eclipse.jgit.lib.ProgressMonitor {
+                        override fun start(totalTasks: Int) {
+                            Log.d(TAG, "Pull started: $totalTasks tasks")
+                        }
+                        override fun beginTask(title: String?, totalWork: Int) {
+                            Log.d(TAG, "Task: $title")
+                        }
+                        override fun update(completed: Int) {}
+                        override fun endTask() {}
+                        override fun isCancelled(): Boolean = false
+                        override fun showDuration(enabled: Boolean) {}
+                    })
+                    .call()
+
+                git.close()
+
+                if (pullResult.isSuccessful) {
+                    Log.d(TAG, "✅ Git pull successful")
+                    true
+                } else {
+                    Log.w(TAG, "⚠️ Git pull completed with issues")
+                    // Still return true to continue build
+                    true
                 }
-            }
-
-            val exitCode = process.waitFor()
-
-            if (exitCode == 0) {
-                Log.d(TAG, "✅ Git pull successful")
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Git pull failed: ${e.message}", e)
+                // Even if pull fails, continue with build (maybe already up to date)
+                Log.d(TAG, "Continuing with build despite pull failure")
                 true
-            } else {
-                Log.e(TAG, "❌ Git pull failed: $output")
-                false
             }
 
         } catch (e: Exception) {
             Log.e(TAG, "Git pull error: ${e.message}", e)
-            false
+            // Don't fail the build if sync fails
+            true
         }
     }
 
@@ -294,11 +360,18 @@ class SmartBuildManager(
 
             Log.d(TAG, "Cloning $repoUrl to $projectPath")
 
-            val process = ProcessBuilder(
+            val processBuilder = ProcessBuilder(
                 "git", "clone", "-b", targetBranch, repoUrl, projectPath
             )
                 .redirectErrorStream(true)
-                .start()
+
+            // Add Termux paths to environment
+            val env = processBuilder.environment()
+            val termuxBin = "/data/data/com.termux/files/usr/bin"
+            val currentPath = env["PATH"] ?: "/system/bin:/system/xbin"
+            env["PATH"] = "$termuxBin:$currentPath"
+
+            val process = processBuilder.start()
 
             val output = StringBuilder()
             BufferedReader(InputStreamReader(process.inputStream)).use { reader ->
@@ -329,9 +402,16 @@ class SmartBuildManager(
      */
     private suspend fun cleanBuild(): Boolean = withContext(Dispatchers.IO) {
         try {
-            val process = ProcessBuilder("gradle", "clean")
+            val processBuilder = ProcessBuilder("gradle", "clean")
                 .directory(File(projectPath))
-                .start()
+
+            // Add Termux paths to environment
+            val env = processBuilder.environment()
+            val termuxBin = "/data/data/com.termux/files/usr/bin"
+            val currentPath = env["PATH"] ?: "/system/bin:/system/xbin"
+            env["PATH"] = "$termuxBin:$currentPath"
+
+            val process = processBuilder.start()
 
             process.waitFor() == 0
 
@@ -377,11 +457,18 @@ class SmartBuildManager(
      */
     suspend fun hasUncommittedChanges(): Boolean = withContext(Dispatchers.IO) {
         try {
-            val process = ProcessBuilder(
+            val processBuilder = ProcessBuilder(
                 "git", "status", "--porcelain"
             )
                 .directory(File(projectPath))
-                .start()
+
+            // Add Termux paths to environment
+            val env = processBuilder.environment()
+            val termuxBin = "/data/data/com.termux/files/usr/bin"
+            val currentPath = env["PATH"] ?: "/system/bin:/system/xbin"
+            env["PATH"] = "$termuxBin:$currentPath"
+
+            val process = processBuilder.start()
 
             val output = BufferedReader(InputStreamReader(process.inputStream)).use {
                 it.readText()

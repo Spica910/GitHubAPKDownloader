@@ -14,6 +14,8 @@ import com.google.android.material.button.MaterialButton
 import com.google.android.material.checkbox.MaterialCheckBox
 import com.google.android.material.card.MaterialCardView
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import java.io.File
 
 class AiBuildActivity : AppCompatActivity() {
@@ -28,6 +30,11 @@ class AiBuildActivity : AppCompatActivity() {
     private lateinit var changeProjectButton: MaterialButton
     private lateinit var repositorySpinner: Spinner
     private lateinit var selectRepositoryButton: MaterialButton
+    private lateinit var cloneRepoButton: MaterialButton
+    private lateinit var syncRepoButton: MaterialButton
+    private lateinit var openFolderButton: MaterialButton
+    private lateinit var quickBuildButton: MaterialButton
+    private lateinit var openTerminalButton: MaterialButton
     private lateinit var branchSpinner: Spinner
     private lateinit var geminiStatusText: TextView
     private lateinit var claudeStatusText: TextView
@@ -90,6 +97,11 @@ class AiBuildActivity : AppCompatActivity() {
         changeProjectButton = findViewById(R.id.changeProjectButton)
         repositorySpinner = findViewById(R.id.repositorySpinner)
         selectRepositoryButton = findViewById(R.id.selectRepositoryButton)
+        cloneRepoButton = findViewById(R.id.cloneRepoButton)
+        syncRepoButton = findViewById(R.id.syncRepoButton)
+        openFolderButton = findViewById(R.id.openFolderButton)
+        quickBuildButton = findViewById(R.id.quickBuildButton)
+        openTerminalButton = findViewById(R.id.openTerminalButton)
         branchSpinner = findViewById(R.id.branchSpinner)
         geminiStatusText = findViewById(R.id.geminiStatusText)
         claudeStatusText = findViewById(R.id.claudeStatusText)
@@ -111,6 +123,26 @@ class AiBuildActivity : AppCompatActivity() {
 
         selectRepositoryButton.setOnClickListener {
             loadUserRepositories()
+        }
+
+        cloneRepoButton.setOnClickListener {
+            cloneSelectedRepository()
+        }
+
+        syncRepoButton.setOnClickListener {
+            syncSelectedRepository()
+        }
+
+        openFolderButton.setOnClickListener {
+            openSelectedRepositoryFolder()
+        }
+
+        quickBuildButton.setOnClickListener {
+            quickBuildSelectedRepository()
+        }
+
+        openTerminalButton.setOnClickListener {
+            openTerminalInFolder()
         }
 
         repositorySpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
@@ -138,7 +170,14 @@ class AiBuildActivity : AppCompatActivity() {
             showBuildLog()
         }
 
-        // Observe build status
+        // Start observing build status
+        observeBuildStatus()
+    }
+
+    /**
+     * Observe build status from SmartBuildManager
+     */
+    private fun observeBuildStatus() {
         lifecycleScope.launch {
             smartBuildManager.buildStatus.collect { status ->
                 updateBuildStatus(status)
@@ -344,6 +383,7 @@ class AiBuildActivity : AppCompatActivity() {
     private fun showBuildLog() {
         val dialogView = layoutInflater.inflate(R.layout.dialog_build_log, null)
         val logText = dialogView.findViewById<TextView>(R.id.buildLogText)
+        val copyLogButton = dialogView.findViewById<MaterialButton>(R.id.copyLogButton)
         val closeButton = dialogView.findViewById<MaterialButton>(R.id.closeButton)
 
         logText.text = if (currentBuildLog.isEmpty()) {
@@ -355,6 +395,13 @@ class AiBuildActivity : AppCompatActivity() {
         val dialog = AlertDialog.Builder(this)
             .setView(dialogView)
             .create()
+
+        copyLogButton.setOnClickListener {
+            val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            val clip = android.content.ClipData.newPlainText("Build Log", currentBuildLog)
+            clipboard.setPrimaryClip(clip)
+            Toast.makeText(this, "📋 Build log copied to clipboard!", Toast.LENGTH_SHORT).show()
+        }
 
         closeButton.setOnClickListener {
             dialog.dismiss()
@@ -636,5 +683,561 @@ class AiBuildActivity : AppCompatActivity() {
                 ).show()
             }
         }
+    }
+
+    /**
+     * Clone selected repository from GitHub
+     */
+    private fun cloneSelectedRepository() {
+        lifecycleScope.launch {
+            try {
+                if (userRepositories.isEmpty()) {
+                    Toast.makeText(
+                        this@AiBuildActivity,
+                        "먼저 리포지토리를 선택하세요",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    return@launch
+                }
+
+                val selectedIndex = repositorySpinner.selectedItemPosition
+                if (selectedIndex < 0 || selectedIndex >= userRepositories.size) {
+                    Toast.makeText(
+                        this@AiBuildActivity,
+                        "리포지토리를 선택하세요",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    return@launch
+                }
+
+                val selectedRepo = userRepositories[selectedIndex]
+                val targetBranch = branchSpinner.selectedItem?.toString() ?: "main"
+
+                // Disable button
+                cloneRepoButton.isEnabled = false
+                cloneRepoButton.text = "Cloning..."
+
+                // Show progress
+                buildStatusCard.visibility = View.VISIBLE
+                buildStatusText.text = "📥 Cloning ${selectedRepo.fullName}..."
+                buildProgressBar.visibility = View.VISIBLE
+
+                // Clone repository
+                val projectPath = projectConfig.getProjectPath()
+                val projectName = "${selectedRepo.owner.login}/${selectedRepo.name}"
+                val targetPath = File("$projectPath/$projectName")
+
+                // Check if folder already exists
+                if (targetPath.exists()) {
+                    // Show confirmation dialog
+                    withContext(Dispatchers.Main) {
+                        cloneRepoButton.isEnabled = true
+                        cloneRepoButton.text = "📥 Clone"
+                        buildStatusCard.visibility = View.GONE
+
+                        AlertDialog.Builder(this@AiBuildActivity)
+                            .setTitle("⚠️ Folder Already Exists")
+                            .setMessage("The project folder already exists:\n\n${targetPath.absolutePath}\n\nDo you want to delete it and clone again?")
+                            .setPositiveButton("Cancel", null)
+                            .setNegativeButton("🗑️ Delete & Re-clone") { _, _ ->
+                                // User confirmed - delete and re-clone
+                                lifecycleScope.launch {
+                                    performClone(selectedRepo, projectName, targetPath, true)
+                                }
+                            }
+                            .show()
+                    }
+                    return@launch
+                }
+
+                // Proceed with clone
+                performClone(selectedRepo, projectName, targetPath, false)
+
+            } catch (e: Exception) {
+                android.util.Log.e("AiBuild", "Clone error: ${e.message}", e)
+                buildStatusText.text = "❌ Clone failed: ${e.message}"
+                buildProgressBar.visibility = View.GONE
+
+                // Show error popup with log copy button
+                val repoName = if (userRepositories.isNotEmpty()) {
+                    userRepositories.getOrNull(repositorySpinner.selectedItemPosition)?.fullName ?: "Unknown"
+                } else {
+                    "Unknown"
+                }
+                showCloneErrorDialog(repoName, e.message ?: "Unknown error")
+            } finally {
+                cloneRepoButton.isEnabled = true
+                cloneRepoButton.text = "📥 Clone"
+            }
+        }
+    }
+
+    /**
+     * Perform the actual clone operation
+     */
+    private suspend fun performClone(
+        selectedRepo: com.github.apkdownloader.Repository,
+        projectName: String,
+        targetPath: File,
+        deleteFirst: Boolean
+    ) {
+        try {
+            // Disable button
+            cloneRepoButton.isEnabled = false
+            cloneRepoButton.text = "Cloning..."
+
+            // Show progress
+            buildStatusCard.visibility = View.VISIBLE
+            buildProgressBar.visibility = View.VISIBLE
+
+            withContext(Dispatchers.IO) {
+                // Delete existing folder if requested
+                if (deleteFirst && targetPath.exists()) {
+                    android.util.Log.d("AiBuild", "🗑️ Deleting existing folder: ${targetPath.absolutePath}")
+                    withContext(Dispatchers.Main) {
+                        buildStatusText.text = "🗑️ Deleting existing folder..."
+                    }
+                    targetPath.deleteRecursively()
+                    android.util.Log.d("AiBuild", "✅ Folder deleted")
+                }
+
+                // Update status
+                withContext(Dispatchers.Main) {
+                    buildStatusText.text = "📥 Cloning ${selectedRepo.fullName}..."
+                }
+
+                // Build clone URL from htmlUrl
+                val cloneUrl = "${selectedRepo.htmlUrl}.git"
+                android.util.Log.d("AiBuild", "⬇️ Cloning $cloneUrl to ${targetPath.absolutePath}")
+
+                // Use ProjectConfig.cloneRepository()
+                val result = projectConfig.cloneRepository(cloneUrl, projectName)
+
+                withContext(Dispatchers.Main) {
+                    if (result.isSuccess) {
+                        val clonedPath = result.getOrNull()
+                        buildStatusText.text = "✅ Repository cloned successfully!"
+                        buildProgressBar.visibility = View.GONE
+                        android.util.Log.d("AiBuild", "✅ Cloned to: $clonedPath")
+
+                        // Update project config
+                        projectConfig.setSelectedRepository(selectedRepo.owner.login, selectedRepo.name)
+
+                        // Show success popup
+                        showCloneSuccessDialog(selectedRepo.fullName, clonedPath)
+                    } else {
+                        val error = result.exceptionOrNull()?.message ?: "Unknown error"
+                        buildStatusText.text = "❌ Clone failed: $error"
+                        buildProgressBar.visibility = View.GONE
+                        android.util.Log.e("AiBuild", "❌ Clone failed: $error")
+
+                        // Show error popup with log copy button
+                        showCloneErrorDialog(selectedRepo.fullName, error)
+                    }
+                }
+            }
+
+        } catch (e: Exception) {
+            android.util.Log.e("AiBuild", "Clone error: ${e.message}", e)
+            withContext(Dispatchers.Main) {
+                buildStatusText.text = "❌ Clone failed: ${e.message}"
+                buildProgressBar.visibility = View.GONE
+                showCloneErrorDialog(selectedRepo.fullName, e.message ?: "Unknown error")
+            }
+        } finally {
+            withContext(Dispatchers.Main) {
+                cloneRepoButton.isEnabled = true
+                cloneRepoButton.text = "📥 Clone"
+            }
+        }
+    }
+
+    private fun syncSelectedRepository() {
+        lifecycleScope.launch {
+            try {
+                if (userRepositories.isEmpty()) {
+                    Toast.makeText(
+                        this@AiBuildActivity,
+                        "먼저 리포지토리를 선택하세요",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    return@launch
+                }
+
+                val selectedIndex = repositorySpinner.selectedItemPosition
+                if (selectedIndex < 0 || selectedIndex >= userRepositories.size) {
+                    Toast.makeText(
+                        this@AiBuildActivity,
+                        "리포지토리를 선택하세요",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    return@launch
+                }
+
+                val selectedRepo = userRepositories[selectedIndex]
+
+                // Disable button
+                syncRepoButton.isEnabled = false
+                syncRepoButton.text = "Syncing..."
+
+                // Show progress
+                buildStatusCard.visibility = View.VISIBLE
+                buildStatusText.text = "🔄 Syncing ${selectedRepo.fullName}..."
+                buildProgressBar.visibility = View.VISIBLE
+
+                // Sync repository (git pull)
+                val projectPath = projectConfig.getProjectPath()
+                val projectName = "${selectedRepo.owner.login}/${selectedRepo.name}"
+                val repoPath = "$projectPath/$projectName"
+
+                // Check if repo exists locally
+                val repoDir = java.io.File(repoPath)
+                if (!repoDir.exists()) {
+                    buildStatusText.text = "❌ Repository not cloned yet"
+                    buildProgressBar.visibility = View.GONE
+                    android.util.Log.e("AiBuild", "Repository not found at: $repoPath")
+                    Toast.makeText(
+                        this@AiBuildActivity,
+                        "Repository not found locally. Please clone it first.\nExpected path: $repoPath",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    syncRepoButton.isEnabled = true
+                    syncRepoButton.text = "🔄 Sync"
+                    return@launch
+                }
+
+                android.util.Log.d("AiBuild", "🔄 Syncing repository at $repoPath")
+
+                // Execute git pull using AppTerminal
+                val branch = branchSpinner.selectedItem?.toString() ?: "main"
+
+                val success = withContext(Dispatchers.IO) {
+                    try {
+                        val terminal = AppTerminal(this@AiBuildActivity)
+                        // Use full path to git to ensure it's found
+                        val gitPath = "/data/data/com.termux/files/usr/bin/git"
+                        val command = "$gitPath pull origin $branch"
+                        android.util.Log.d("AiBuild", "Executing: $command in $repoPath")
+
+                        val result = terminal.execute(command, repoDir)
+
+                        android.util.Log.d("AiBuild", "Git pull exit code: ${result.exitCode}")
+                        android.util.Log.d("AiBuild", "Git pull output: ${result.output}")
+
+                        result.success
+                    } catch (e: Exception) {
+                        android.util.Log.e("AiBuild", "Git pull error: ${e.message}", e)
+                        false
+                    }
+                }
+
+                if (success) {
+                    buildStatusText.text = "✅ Repository synced!"
+                    buildProgressBar.visibility = View.GONE
+                    Toast.makeText(
+                        this@AiBuildActivity,
+                        "✓ ${selectedRepo.fullName} synced with GitHub!",
+                        Toast.LENGTH_LONG
+                    ).show()
+                } else {
+                    buildStatusText.text = "❌ Sync failed"
+                    buildProgressBar.visibility = View.GONE
+                    Toast.makeText(
+                        this@AiBuildActivity,
+                        "Failed to sync repository. Check logs.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+
+            } catch (e: Exception) {
+                android.util.Log.e("AiBuild", "Sync error: ${e.message}", e)
+                buildStatusText.text = "❌ Sync failed: ${e.message}"
+                buildProgressBar.visibility = View.GONE
+                Toast.makeText(
+                    this@AiBuildActivity,
+                    "Error: ${e.message}",
+                    Toast.LENGTH_LONG
+                ).show()
+            } finally {
+                syncRepoButton.isEnabled = true
+                syncRepoButton.text = "🔄 Sync"
+            }
+        }
+    }
+
+    /**
+     * Open selected repository folder
+     */
+    private fun openSelectedRepositoryFolder() {
+        if (userRepositories.isEmpty()) {
+            Toast.makeText(this, "먼저 리포지토리를 선택하세요", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val selectedIndex = repositorySpinner.selectedItemPosition
+        if (selectedIndex < 0 || selectedIndex >= userRepositories.size) {
+            Toast.makeText(this, "리포지토리를 선택하세요", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val selectedRepo = userRepositories[selectedIndex]
+        val projectPath = projectConfig.getProjectPath()
+        val repoPath = "$projectPath/${selectedRepo.owner.login}/${selectedRepo.name}"
+        val repoDir = File(repoPath)
+
+        if (!repoDir.exists()) {
+            Toast.makeText(
+                this,
+                "Repository not found locally. Please clone it first.\nExpected path: $repoPath",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+
+        // Open folder with file manager
+        try {
+            val intent = Intent(Intent.ACTION_VIEW)
+            val uri = android.net.Uri.parse(repoPath)
+            intent.setDataAndType(uri, "resource/folder")
+            startActivity(Intent.createChooser(intent, "Open folder"))
+        } catch (e: Exception) {
+            Toast.makeText(this, "Cannot open folder: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /**
+     * Open Termux terminal in selected repository folder
+     */
+    private fun openTerminalInFolder() {
+        if (userRepositories.isEmpty()) {
+            Toast.makeText(this, "먼저 리포지토리를 선택하세요", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val selectedIndex = repositorySpinner.selectedItemPosition
+        if (selectedIndex < 0 || selectedIndex >= userRepositories.size) {
+            Toast.makeText(this, "리포지토리를 선택하세요", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val selectedRepo = userRepositories[selectedIndex]
+        val projectPath = projectConfig.getProjectPath()
+        val repoPath = "$projectPath/${selectedRepo.owner.login}/${selectedRepo.name}"
+        val repoDir = File(repoPath)
+
+        if (!repoDir.exists()) {
+            Toast.makeText(
+                this,
+                "Repository not found locally. Please clone it first.\nExpected path: $repoPath",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+
+        // Open Termux and automatically cd to the repository folder
+        try {
+            // Use Termux RUN_COMMAND intent to execute cd command
+            val intent = Intent()
+            intent.setClassName("com.termux", "com.termux.app.RunCommandService")
+            intent.action = "com.termux.RUN_COMMAND"
+
+            // Execute: cd to directory and start bash
+            val command = "cd \"$repoPath\" && exec bash"
+            intent.putExtra("com.termux.RUN_COMMAND_PATH", "/data/data/com.termux/files/usr/bin/bash")
+            intent.putExtra("com.termux.RUN_COMMAND_ARGUMENTS", arrayOf("-c", command))
+            intent.putExtra("com.termux.RUN_COMMAND_WORKDIR", repoPath)
+            intent.putExtra("com.termux.RUN_COMMAND_BACKGROUND", false)
+            intent.putExtra("com.termux.RUN_COMMAND_SESSION_ACTION", "0") // Open new session
+
+            // Start Termux service
+            this.startService(intent)
+
+            // Also open Termux app to show the terminal
+            val openIntent = Intent()
+            openIntent.setClassName("com.termux", "com.termux.app.TermuxActivity")
+            openIntent.action = Intent.ACTION_MAIN
+            openIntent.addCategory(Intent.CATEGORY_LAUNCHER)
+            openIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(openIntent)
+
+            // Show success message
+            Toast.makeText(
+                this,
+                "✅ Termux opened in:\n$repoPath",
+                Toast.LENGTH_LONG
+            ).show()
+        } catch (e: Exception) {
+            android.util.Log.e("AiBuild", "Failed to open Termux: ${e.message}", e)
+
+            // Fallback: Just open Termux and show path to copy
+            try {
+                val fallbackIntent = Intent()
+                fallbackIntent.setClassName("com.termux", "com.termux.app.TermuxActivity")
+                fallbackIntent.action = Intent.ACTION_MAIN
+                fallbackIntent.addCategory(Intent.CATEGORY_LAUNCHER)
+                fallbackIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                startActivity(fallbackIntent)
+
+                // Copy path to clipboard
+                val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                val clip = android.content.ClipData.newPlainText("Project Path", "cd \"$repoPath\"")
+                clipboard.setPrimaryClip(clip)
+
+                Toast.makeText(
+                    this,
+                    "📋 Command copied to clipboard!\nPaste in Termux:\ncd \"$repoPath\"",
+                    Toast.LENGTH_LONG
+                ).show()
+            } catch (e2: Exception) {
+                Toast.makeText(
+                    this,
+                    "Cannot open Termux. Is it installed?",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+    }
+
+    /**
+     * Quick build selected repository (without AI retry)
+     */
+    private fun quickBuildSelectedRepository() {
+        if (userRepositories.isEmpty()) {
+            Toast.makeText(this, "먼저 리포지토리를 선택하세요", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val selectedIndex = repositorySpinner.selectedItemPosition
+        if (selectedIndex < 0 || selectedIndex >= userRepositories.size) {
+            Toast.makeText(this, "리포지토리를 선택하세요", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val selectedRepo = userRepositories[selectedIndex]
+        val projectPath = projectConfig.getProjectPath()
+        val repoPath = "$projectPath/${selectedRepo.owner.login}/${selectedRepo.name}"
+
+        // Re-initialize SmartBuildManager with selected repository path
+        android.util.Log.d("AiBuild", "Quick build for: $repoPath")
+        smartBuildManager = SmartBuildManager(this, repoPath)
+
+        // Re-observe build status with new manager
+        observeBuildStatus()
+
+        // Start build
+        startSmartBuild()
+    }
+
+    /**
+     * Show success dialog when clone is completed
+     */
+    private fun showCloneSuccessDialog(repoName: String, clonedPath: String?) {
+        val message = buildString {
+            appendLine("✅ Clone Completed Successfully!")
+            appendLine()
+            appendLine("Repository: $repoName")
+            if (clonedPath != null) {
+                appendLine()
+                appendLine("Location:")
+                appendLine(clonedPath)
+            }
+            appendLine()
+            appendLine("Would you like to build this project now?")
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Clone Success")
+            .setMessage(message)
+            .setPositiveButton("OK", null)
+            .setNeutralButton("Open Folder") { _, _ ->
+                // Open file manager to the cloned folder
+                if (clonedPath != null) {
+                    try {
+                        val intent = Intent(Intent.ACTION_VIEW)
+                        val uri = android.net.Uri.parse(clonedPath)
+                        intent.setDataAndType(uri, "resource/folder")
+                        startActivity(Intent.createChooser(intent, "Open folder"))
+                    } catch (e: Exception) {
+                        Toast.makeText(this, "Cannot open folder", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            .setNegativeButton("🚀 Build Now") { _, _ ->
+                // Re-initialize SmartBuildManager with the cloned project path
+                if (clonedPath != null) {
+                    android.util.Log.d("AiBuild", "Re-initializing SmartBuildManager with path: $clonedPath")
+                    smartBuildManager = SmartBuildManager(this, clonedPath)
+
+                    // Re-observe build status with new manager
+                    observeBuildStatus()
+
+                    // Start build process for the cloned repository
+                    android.util.Log.d("AiBuild", "Starting build after clone: $repoName")
+                    startSmartBuild()
+                } else {
+                    Toast.makeText(this, "Cannot start build: Invalid project path", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .show()
+    }
+
+    /**
+     * Show error dialog when clone fails (with log copy button)
+     */
+    private fun showCloneErrorDialog(repoName: String, errorMessage: String) {
+        val fullErrorLog = buildString {
+            appendLine("❌ Clone Failed")
+            appendLine()
+            appendLine("Repository: $repoName")
+            appendLine()
+            appendLine("Error Details:")
+            appendLine(errorMessage)
+            appendLine()
+            appendLine("Timestamp: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US).format(java.util.Date())}")
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Clone Failed")
+            .setMessage("Failed to clone repository:\n\n$repoName\n\nError: $errorMessage")
+            .setPositiveButton("OK", null)
+            .setNeutralButton("📋 Copy Log") { _, _ ->
+                // Copy error log to clipboard
+                val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                val clip = android.content.ClipData.newPlainText("Clone Error Log", fullErrorLog)
+                clipboard.setPrimaryClip(clip)
+                Toast.makeText(this, "📋 Error log copied to clipboard!", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("View Full Log") { _, _ ->
+                // Show full log in a dialog
+                showFullErrorLogDialog(fullErrorLog)
+            }
+            .show()
+    }
+
+    /**
+     * Show full error log in a scrollable dialog
+     */
+    private fun showFullErrorLogDialog(errorLog: String) {
+        val scrollView = android.widget.ScrollView(this)
+        val textView = android.widget.TextView(this).apply {
+            text = errorLog
+            textSize = 11f
+            typeface = android.graphics.Typeface.MONOSPACE
+            setPadding(16, 16, 16, 16)
+            setTextIsSelectable(true)
+        }
+        scrollView.addView(textView)
+
+        AlertDialog.Builder(this)
+            .setTitle("Full Error Log")
+            .setView(scrollView)
+            .setPositiveButton("Close", null)
+            .setNeutralButton("📋 Copy") { _, _ ->
+                val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                val clip = android.content.ClipData.newPlainText("Clone Error Log", errorLog)
+                clipboard.setPrimaryClip(clip)
+                Toast.makeText(this, "📋 Error log copied!", Toast.LENGTH_SHORT).show()
+            }
+            .show()
     }
 }

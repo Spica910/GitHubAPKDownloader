@@ -63,4 +63,7 @@ dependencies {
 
     // Browser for OAuth
     implementation 'androidx.browser:browser:1.7.0'
+
+    // JGit for Git operations without external git binary
+    implementation 'org.eclipse.jgit:org.eclipse.jgit:6.7.0.202309050840-r'
 }
